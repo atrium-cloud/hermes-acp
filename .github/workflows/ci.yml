@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # 1.3.11 is the floor for the windows-arm64 compile target; older
+          # Bun rejects it. Keep in step with the release workflow.
+          bun-version: 1.3.11
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run build
+      # The bin entry points at dist/index.js; prove it execs after bundling.
+      - name: Smoke the bundle
+        run: node dist/index.js --version
+      # Cross-compile all six release binaries as a smoke test so a compile-only
+      # break (e.g. a runtime require the binary can't resolve) fails a PR, not a tag.
+      - name: Cross-compile binaries
+        run: bun run bundle:all

@@ -1,0 +1,10 @@
+hermes-acp
+Copyright 2026 Finn Lyu / Atrium Cloud
+
+This product includes software developed for the hermes-acp project.
+Project source: https://github.com/atrium-cloud/hermes-acp
+
+This product includes material derived from Hermes Agent
+(https://github.com/NousResearch/hermes-agent), Copyright (c) 2025 Nous
+Research, licensed under the MIT License: the tool-kind table and tool-failure
+heuristic in src/turn/mappers.ts are ported from its acp_adapter/tools.py.
