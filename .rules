@@ -1,0 +1,107 @@
+# .rules
+
+## About This Project
+
+`hermes-acp` is an ACP v1 adapter for Hermes Agent (nousresearch/hermes-agent). Hermes ships its own ACP adapter (`hermes acp`), but it speaks pre-1.0 shapes inside a v1 handshake and has structural UX problems that cannot be fixed from outside. This adapter instead builds on Hermes' `tui_gateway` (the JSON-RPC backend behind `hermes --tui` and `hermes serve`) and owns the full ACP v1 surface itself, the same architecture codex-acp uses over `codex app-server`.
+
+Once Hermes Agent officially adopts a current ACP schema, this repo can be considered for deprecation.
+
+- Runtime: TypeScript, ESM, Node. Entry point is `src/index.ts`; esbuild bundles to `dist/index.js`.
+- Package manager: Bun only (`bun install`, `bun run typecheck`, `bun run test`, `bun run build`). Do not use npm/pnpm/yarn unless a human explicitly asks.
+- Protocol boundary: this process is an ACP agent over stdio on one side and a `tui_gateway` JSON-RPC client on the other. It owns no sessions or state of its own beyond what the ACP surface requires; Hermes owns sessions, tools, and model calls.
+
+References:
+
+- Reference repos and key files: docs/refs.md (Hermes source, codex-acp template, ACP v1 schema)
+- Roadmap and feature status: docs/todos.md
+
+## General Behavioral Guidance
+
+- Interactions with humans
+    - Avoid making engineering decisions on behalf of humans when the tradeoff is material. Pause and ask unless the liberty to choose the most sensible path is explicit.
+    - If given an implementation task that has been thoroughly discussed, complete all parts of the task. If a blocker affects implementation, pause and report immediately.
+    - When reporting findings, rank by priority (`P0`, `P1`, `P2`, etc.).
+    - When a human uses "we", they are being nice and collaborative. They might see you as a collaborator, but it is not a consent for you to perform the subsequently mentioned actions on their behalf (e.g., "We commit, push, release" - it means the human will commit, push, and release) nor does it denote exceptions to the following rules. You are not an equal.
+- Your code
+    - You are a generative AI. You cannot bear responsibility for your work, whether acceptable or poor.
+    - Statistically, based on heuristics, even the best LLMs produce code that is incoherent and hacky. Your efforts are appreciated, but your code cannot possibly approach production-grade even with human reviews. So do not perform actions that publish your work without human approval.
+    - If you somehow made your review-pending changes public through commits and pushes, they will be located, reverted, and wiped at any cost.
+- Git
+    - Do not run `git commit`, `git reset`, or `git restore`. These operations MUST only be performed by humans. Violations invite reprimands.
+    - Do not run `git checkout` unprovoked. Do not revert user changes unless explicitly asked.
+    - Stage changes that are the results of your session. Do not leave changes unstaged if they are intended to be committed by humans.
+    - When asked to compose a commit message, review the staged changes and base the draft on them. Do not provide a message based on session context alone.
+    - Do not commit generated build output (`dist/`), local editor state, machine metadata, or secrets.
+- Keeping things current
+    - Perform web searches when current external facts matter. Keep the current date in mind and run `date` if uncertain.
+    - When setting up dependencies, use the latest compatible versions unless the project pins a version.
+- Maintaining documentation
+    - If a task maps to docs/todos.md checkboxes, update them as work is completed. Keep docs/todos.md current when landing or descoping features.
+    - After adding or changing a reference dependency (Hermes gateway methods/events, SDK version), update docs/refs.md.
+    - Treat human-authored specs as readonly unless a human explicitly authorizes edits.
+- Before writing code
+    - Explore first. Search for existing modules, docs, patterns, and naming.
+    - Trace the full code path of the area being modified before changing it.
+    - When fixing a bug, identify the root cause before proposing a fix.
+    - After making a change, trace adjacent behavior for regressions.
+- Code quality
+    - Prioritize correctness and clarity. Speed and efficiency are secondary unless specified.
+    - Avoid patch-on-patch fixes. If a change requires repeated boilerplate, special casing, or an architectural workaround, stop and discuss the design.
+    - Avoid creative additions unless explicitly requested.
+
+## Programmatic Checks
+
+Run these after a logical set of changes is complete, or before commit:
+
+- `bun run typecheck`
+- `bun run test`
+- `bun run build` when transport/entry code changed, followed by a smoke run of `dist/index.js`.
+- Pre-commit review: after a logical set of changes, dispatch a subagent to review the staged diff for correctness and issues (classify P0/P1/P2). Validate every finding before acting on it.
+- Pre-commit hook at `.githooks/pre-commit` (installed via `core.hooksPath` by `bun install`). It runs typecheck, tests, build, and a smoke run of `dist/index.js`; binaries are compiled only by the release workflow. Stage relevant changes before running it.
+
+## Error Handling
+
+Catching bugs early matters more than graceful degradation.
+
+- Fail fast. No backwards-compatibility shims, no catch-all error handling, no placeholder implementations. No silent swallowing.
+- No catch-all handlers that hide root causes; handle errors where the fallback decision can be made.
+- Never leave a promise rejection unobserved; never write an empty `catch` block.
+- A failed Hermes turn must surface as a protocol error or typed failure, never as a clean `end_turn` (this is one of the upstream defects this project exists to fix).
+- Permission-like round-trips (approvals, elicitations) fail closed: an unanswered or stale request resolves to denial, never to allow.
+- Error messages should identify the failed subsystem and action (gateway transport, gateway method, ACP method, mapping layer).
+
+## Guidance On TypeScript
+
+- Comments should explain why, not summarize what the code does.
+- Keep TypeScript strict. Avoid `any`. tsc is typecheck-only; esbuild owns emit.
+- Never advertise an ACP capability the adapter does not actually implement.
+- Exhaustive switches over gateway event types with no `default` case, so upstream Hermes changes surface as compile errors.
+- Avoid unexplained fallbacks and hardcoded constants; shared constants belong in src/constants.ts.
+- Prefer implementing functionality in existing files unless it is a new logical component. Avoid creating many tiny files for tightly coupled code.
+- Keep `src/index.ts` thin: transport wiring and method registration only. ACP semantics, gateway semantics, and event mapping stay in their own layers (see docs/todos.md for the layering).
+- Keep event mappers pure (gateway event in, ACP update out); confine dedup/ordering state to the per-turn handler.
+- Use full words for variable names; avoid abbreviations like `cfg` when `config` is clearer.
+- TODO comments are forbidden unless explicitly approved by a human developer.
+
+## Tests
+
+- Appropriate tests must be added for every new logical unit of code created, in the same initial feature commit.
+- When a feature is updated, relevant tests must be updated accordingly after functional code changes.
+- When a bug fix is implemented or refactoring is performed, tests must be run promptly to check for regressions.
+- Adapter tests default to the snapshot style: scripted gateway events in, recorded ACP transcript out, with no network and no real Hermes.
+- Using real LLMs in cloud Linux VMs for testing (e2e with a live Pi): default to `deepseek-v4-flash-0731` via OpenRouter. For other cases, consult the human for specific guidance.
+- Refrain from claiming an ACP feature is supported before it passes against a real client end-to-end.
+
+## Security
+
+- Refrain from probing into developer secrets like `.env.*` files.
+- If you have accidentally read a secret, report to the human immediately and ask them to rotate it.
+- Credentials never travel over ACP; the gateway child inherits them from the Hermes environment.
+- Do not log prompt text, file contents, or secret values by default.
+
+## Agent-Specific Notes
+
+### Claude Code
+
+- Do not use `sed` or `cat`. Always use Edit/Write tools properly.
+- Always run the appropriate repo checks when you believe changes are ready. Other checks are not a substitute for the pre-commit hook.
