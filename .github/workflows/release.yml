@@ -36,11 +36,19 @@ jobs:
         run: bun run bundle:all
       - name: Zip binaries
         run: bun run package:all
+      # Every tag is paired with its curated changelog committed at the tag;
+      # a missing file fails the release rather than shipping generic notes.
+      - name: Check the changelog exists
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: test -f "docs/changelogs/${RELEASE_TAG}.md"
       - name: Create GitHub Release with binaries
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
           files: dist/bin/*.zip
+          # Curated changelog as the body, generated commit notes appended below.
+          body_path: docs/changelogs/${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}.md
           generate_release_notes: true
           # Fail loudly rather than publishing a release missing a platform.
           fail_on_unmatched_files: true
