@@ -4,9 +4,12 @@
 
 ## Requirements
 
-- Hermes Agent 0.20.6 or above, configured with a model provider
+- Node 22 or newer.
+- Hermes Agent 0.20.6 or above, configured with a model provider, resolved as `hermes` on PATH or named by `HERMES_ACP_HERMES_BIN`.
 
-The binary is `hermes-agent-acp`, not `hermes-acp`: Hermes' own installer, `hermes update`, and `hermes uninstall` all claim `~/.local/bin/hermes-acp` (and `/usr/local/bin/hermes-acp`) for the upstream `hermes acp` launcher, so a binary of that name is overwritten on every Hermes install and deleted on uninstall.
+The release is a single executable, `hermes-agent-acp`; put it on PATH or point your ACP client at it. On Windows run it as `node hermes-agent-acp`.
+
+The executable is `hermes-agent-acp`, not `hermes-acp`: Hermes' own installer, `hermes update`, and `hermes uninstall` all claim `~/.local/bin/hermes-acp` (and `/usr/local/bin/hermes-acp`) for the upstream `hermes acp` launcher, so a file of that name is overwritten on every Hermes install and deleted on uninstall.
 
 ## ACP support
 

@@ -1,8 +1,9 @@
 name: Release
 
 # A version tag pushed by `scripts/release.sh --push` cuts a release: this
-# compiles the six adapter binaries and attaches them to a GitHub Release for
-# the tag. workflow_dispatch re-runs the build against an existing tag.
+# builds the adapter bundle, zips it with LICENSE and NOTICE, and attaches the
+# zip to a GitHub Release for the tag. workflow_dispatch re-runs the build
+# against an existing tag.
 on:
   push:
     tags: ['v*']
@@ -32,23 +33,24 @@ jobs:
       # Gate the release on a green tree so a bad tag never ships.
       - run: bun run typecheck
       - run: bun run test
-      - name: Compile binaries
-        run: bun run bundle:all
-      - name: Zip binaries
-        run: bun run package:all
       # Every tag is paired with its curated changelog committed at the tag;
       # a missing file fails the release rather than shipping generic notes.
       - name: Check the changelog exists
         env:
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: test -f "docs/changelogs/${RELEASE_TAG}.md"
-      - name: Create GitHub Release with binaries
+      - name: Build and zip the bundle
+        run: bun run package
+      # Called directly: the hashbang and the executable bit are part of the artifact.
+      - name: Smoke the packaged executable
+        run: ./dist/hermes-agent-acp --version
+      - name: Create GitHub Release with the bundle
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-          files: dist/bin/*.zip
+          files: dist/hermes-agent-acp.zip
           # Curated changelog as the body, generated commit notes appended below.
           body_path: docs/changelogs/${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}.md
           generate_release_notes: true
-          # Fail loudly rather than publishing a release missing a platform.
+          # Fail loudly rather than publishing a release with no artifact.
           fail_on_unmatched_files: true

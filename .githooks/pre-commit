@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Runs the checks from .github/workflows/ci.yml so a red tree never lands.
-# Binary cross-compilation is left to the release workflow.
+# Packaging the release zip is left to CI and the release workflow.
 # Installed by `bun install` (the `prepare` script sets core.hooksPath=.githooks).
 # Bypass for a work-in-progress commit with `git commit --no-verify`.
 set -euo pipefail
