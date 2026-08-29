@@ -2,9 +2,9 @@
 
 # Prepare a hermes-agent-acp release: bump the package version, pair it with its
 # curated changelog, create a release commit and annotated tag. The tag
-# triggers .github/workflows/release.yml, which compiles the six binaries and
-# attaches them to the GitHub Release; this script only advances the version
-# state and tags.
+# triggers .github/workflows/release.yml, which builds the bundle and attaches
+# the zip to the GitHub Release; this script only advances the version state
+# and tags.
 
 set -euo pipefail
 

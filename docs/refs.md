@@ -12,7 +12,7 @@
 
 - Repo: https://github.com/NousResearch/hermes-agent
 - Pinned reference: Hermes 0.20.6 (tag `v2026.8.27`), the version `src/gateway/types.ts` was hand-verified against (payload shapes, method params/results, and turn lifecycle, 2026-08-28). Every bump re-verifies the typed subset, then moves this reference.
-- Supported: 0.20.6 and above. Hermes is an external runtime dependency the way codex-acp's `@openai/codex` and claude-agent-acp's `@anthropic-ai/claude-agent-sdk` are, except it is a Python install (`install.sh`/uv) that cannot ride in the package or the compiled binaries. Nothing is checked at runtime — no version floor, no `desktop_contract` gate; `_session_info.version`/`desktop_contract` stay typed because they are on the wire, unread.
+- Supported: 0.20.6 and above. Hermes is an external runtime dependency the way codex-acp's `@openai/codex` and claude-agent-acp's `@anthropic-ai/claude-agent-sdk` are, except it is a Python install (`install.sh`/uv) that cannot ride in the package or the release bundle. Nothing is checked at runtime — no version floor, no `desktop_contract` gate; `_session_info.version`/`desktop_contract` stay typed because they are on the wire, unread.
 - Verified against live Hermes 0.20.5 in a cloud Linux VM E2E (2026-08-24).
 - Drift checker: `bun run drift` (`-- --tag`, `-- --root`) diffs consumed gateway method/event names against a release; payload shapes need hand-verification.
 - E2E credentials: the provider key passes via child environment (`OPENROUTER_API_KEY`); the profile secret scope overlays `os.environ`, so no `<home>/.env` is written.
