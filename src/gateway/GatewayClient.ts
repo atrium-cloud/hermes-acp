@@ -124,7 +124,7 @@ export class GatewayClient {
     this.startupTimeoutMs = options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS
     this.rpcTimeoutMs = options.rpcTimeoutMs ?? DEFAULT_RPC_TIMEOUT_MS
     this.killGraceMs = options.killGraceMs ?? KILL_GRACE_MS
-    this.log = options.log ?? ((message: string) => console.error(`[hermes-acp] ${message}`))
+    this.log = options.log ?? ((message: string) => console.error(`[hermes-agent-acp] ${message}`))
   }
 
   /** Subscribe to gateway events (known types only; unknown types are

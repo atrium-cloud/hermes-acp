@@ -1,8 +1,9 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "hermes-acp",
+      "name": "hermes-agent-acp",
       "dependencies": {
         "@agentclientprotocol/sdk": "^1.4.0",
       },

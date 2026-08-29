@@ -1,4 +1,4 @@
-# Contributing to `hermes-acp`
+# Contributing to `hermes-agent-acp`
 
 External pull requests are not accepted. Only verified collaborators contribute directly to this repository.
 

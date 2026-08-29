@@ -25,7 +25,7 @@ import type {
 } from '@agentclientprotocol/sdk'
 
 import { buildAgentApp } from '../app.js'
-import { SESSION_DIRECTORY_FILENAME, SUPPORTED_DESKTOP_CONTRACT, SUPPORTED_HERMES_MIN } from '../constants.js'
+import { SESSION_DIRECTORY_FILENAME } from '../constants.js'
 import { GatewayRpcError } from '../gateway/GatewayClient.js'
 import type { HermesGateway } from '../gateway/HermesGatewayClient.js'
 import type {
@@ -285,17 +285,16 @@ export const TEST_MODEL_CATALOG: ModelOptionsResult = {
 export const TEST_APPROVAL_MODE = 'manual'
 
 /**
- * The compatibility fields every full `_session_info` carries upstream, pinned
- * to the supported build. Spread into the `SessionInfo` literals of tests that
- * are not about compatibility, so they exercise the supported path rather than
- * tripping the version gate (src/session/sessionSetup.ts
- * `checkGatewayCompatibility`); the gateway-compatibility tests set their own.
+ * The build-identity fields every full `_session_info` carries upstream, as
+ * the reference Hermes (docs/refs.md) reports them. Spread into the
+ * `SessionInfo` literals so they model the real wire shape; the adapter reads
+ * none of them.
  */
-export const TEST_GATEWAY_COMPATIBILITY: Pick<SessionInfo, 'version' | 'release_date' | 'desktop_contract'> = {
-  version: SUPPORTED_HERMES_MIN,
+export const TEST_GATEWAY_BUILD_IDENTITY: Pick<SessionInfo, 'version' | 'release_date' | 'desktop_contract'> = {
+  version: '0.20.6',
   // `hermes_cli.__release_date__`'s own format, dots not dashes.
-  release_date: '2026.8.18',
-  desktop_contract: SUPPORTED_DESKTOP_CONTRACT,
+  release_date: '2026.8.27',
+  desktop_contract: 6,
 }
 
 /**

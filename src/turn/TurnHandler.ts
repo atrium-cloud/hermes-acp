@@ -404,11 +404,11 @@ export class TurnHandler {
       // that is not "deny", so relaying a string this adapter cannot describe
       // to the user would turn an unknown option into silent consent.
       console.error(
-        `[hermes-acp] approval ${requestId} offered choices this adapter cannot present, dropped from the prompt: ${unknownChoices.join(', ')}`,
+        `[hermes-agent-acp] approval ${requestId} offered choices this adapter cannot present, dropped from the prompt: ${unknownChoices.join(', ')}`,
       )
     }
     if (options.length === 0) {
-      console.error(`[hermes-acp] approval ${requestId} offered no presentable choice; denying`)
+      console.error(`[hermes-agent-acp] approval ${requestId} offered no presentable choice; denying`)
       await this.respondToApproval(requestId, APPROVAL_CHOICE_DENY)
       return
     }
@@ -455,14 +455,14 @@ export class TurnHandler {
           allowed = selected !== APPROVAL_CHOICE_DENY
         } else {
           console.error(
-            `[hermes-acp] client selected permission option ${JSON.stringify(selected)} for approval ${requestId}, which was never offered; denying`,
+            `[hermes-agent-acp] client selected permission option ${JSON.stringify(selected)} for approval ${requestId}, which was never offered; denying`,
           )
         }
       }
     } catch (error) {
       // Includes the abort the turn's end fires: either way nobody answered.
       console.error(
-        `[hermes-acp] ACP session/request_permission failed for approval ${requestId}: ${describeError(error)}; denying`,
+        `[hermes-agent-acp] ACP session/request_permission failed for approval ${requestId}: ${describeError(error)}; denying`,
       )
     }
 
@@ -502,7 +502,7 @@ export class TurnHandler {
       // dropped the queue (an interrupt unregisters it), and there is no ACP
       // channel to report a notification-shaped failure on.
       console.error(
-        `[hermes-acp] gateway method approval.respond failed for request ${requestId}: ${describeError(error)}`,
+        `[hermes-agent-acp] gateway method approval.respond failed for request ${requestId}: ${describeError(error)}`,
       )
     }
   }
@@ -521,7 +521,7 @@ export class TurnHandler {
     const requestId = payload.request_id
     if (!clientSupportsFormElicitation(this.clientCapabilities)) {
       console.error(
-        `[hermes-acp] dropped clarify.request ${requestId}: the client does not support form elicitation, so Hermes will time the question out`,
+        `[hermes-agent-acp] dropped clarify.request ${requestId}: the client does not support form elicitation, so Hermes will time the question out`,
       )
       return
     }
@@ -545,14 +545,14 @@ export class TurnHandler {
 
       const question = payload.question
       if (question === undefined || question === '') {
-        console.error(`[hermes-acp] dropped clarify.request ${requestId}: neither a question nor a question list`)
+        console.error(`[hermes-agent-acp] dropped clarify.request ${requestId}: neither a question nor a question list`)
         return
       }
       if (this.settled) {
         // Settled during the drain above: teardown has already cancelled every
         // elicitation it knew about, so a card opened now is one nothing will
         // ever abort. Same guard the batch path applies per question.
-        console.error(`[hermes-acp] clarify ${requestId} abandoned: the turn ended`)
+        console.error(`[hermes-agent-acp] clarify ${requestId} abandoned: the turn ended`)
         return
       }
 
@@ -564,12 +564,12 @@ export class TurnHandler {
         ...(toolCallId !== undefined ? { toolCallId } : {}),
       })
       if (answer === null) {
-        console.error(`[hermes-acp] clarify ${requestId} went unanswered by the client; leaving it to Hermes' timeout`)
+        console.error(`[hermes-agent-acp] clarify ${requestId} went unanswered by the client; leaving it to Hermes' timeout`)
         return
       }
       if (this.settled) {
         console.error(
-          `[hermes-acp] clarify ${requestId} answer arrived after the turn ended; dropping it`,
+          `[hermes-agent-acp] clarify ${requestId} answer arrived after the turn ended; dropping it`,
         )
         return
       }
@@ -597,7 +597,7 @@ export class TurnHandler {
         continue
       }
       if (this.settled) {
-        console.error(`[hermes-acp] clarify ${requestId} abandoned mid-batch: the turn ended`)
+        console.error(`[hermes-agent-acp] clarify ${requestId} abandoned mid-batch: the turn ended`)
         return
       }
       const answer = await this.askClarify({
@@ -609,7 +609,7 @@ export class TurnHandler {
       })
       if (answer === null) {
         console.error(
-          `[hermes-acp] clarify ${requestId} question ${question.qid} went unanswered by the client; abandoning the remaining questions`,
+          `[hermes-agent-acp] clarify ${requestId} question ${question.qid} went unanswered by the client; abandoning the remaining questions`,
         )
         return
       }
@@ -617,7 +617,7 @@ export class TurnHandler {
         // Answered after the turn ended: locking it would record a decision for
         // a turn nobody is watching, and upstream has already expired the card.
         console.error(
-          `[hermes-acp] clarify ${requestId} answer for question ${question.qid} arrived after the turn ended; dropping it`,
+          `[hermes-agent-acp] clarify ${requestId} answer for question ${question.qid} arrived after the turn ended; dropping it`,
         )
         return
       }
@@ -638,7 +638,7 @@ export class TurnHandler {
       const content = response.content
       return clarifyAnswer(content === null || content === undefined ? undefined : content[CLARIFY_ANSWER_FIELD])
     } catch (error) {
-      console.error(`[hermes-acp] ACP elicitation/create failed: ${describeError(error)}`)
+      console.error(`[hermes-agent-acp] ACP elicitation/create failed: ${describeError(error)}`)
       return null
     } finally {
       this.pendingElicitations.delete(controller)
@@ -651,11 +651,11 @@ export class TurnHandler {
       if (result.status === 'expired') {
         // Upstream tolerates a late answer rather than erroring on it; the
         // question is gone and the agent thread has already moved on.
-        console.error(`[hermes-acp] clarify ${requestId} had already expired when the client's answer arrived`)
+        console.error(`[hermes-agent-acp] clarify ${requestId} had already expired when the client's answer arrived`)
       }
     } catch (error) {
       console.error(
-        `[hermes-acp] gateway method clarify.respond failed for request ${requestId}: ${describeError(error)}`,
+        `[hermes-agent-acp] gateway method clarify.respond failed for request ${requestId}: ${describeError(error)}`,
       )
     }
   }
@@ -701,7 +701,7 @@ export class TurnHandler {
    */
   private track(work: Promise<void>, description: string): void {
     void work.catch((error: unknown) => {
-      console.error(`[hermes-acp] ${description} failed unexpectedly: ${describeError(error)}`)
+      console.error(`[hermes-agent-acp] ${description} failed unexpectedly: ${describeError(error)}`)
     })
   }
 

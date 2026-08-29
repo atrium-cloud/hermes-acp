@@ -232,7 +232,7 @@ export async function detachStagedImages(
       await hermes.imageDetach({ session_id: sessionId, path })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.error(`[hermes-acp] gateway method image.detach failed: ${message}`)
+      console.error(`[hermes-agent-acp] gateway method image.detach failed: ${message}`)
     }
   }
 }

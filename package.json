@@ -1,5 +1,5 @@
 {
-  "name": "hermes-acp",
+  "name": "hermes-agent-acp",
   "version": "0.1.0",
   "private": true,
   "description": "ACP v1 adapter for Hermes Agent, built on the Hermes tui_gateway",
@@ -7,7 +7,7 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "hermes-acp": "dist/index.js"
+    "hermes-agent-acp": "dist/index.js"
   },
   "scripts": {
     "prepare": "git config core.hooksPath .githooks",
@@ -19,19 +19,19 @@
     "test:e2e": "bun run build && RUN_HERMES_E2E=true vitest run --no-file-parallelism src/__tests__/e2e",
     "release": "bash scripts/release.sh",
     "bundle:all": "bun run bundle:linux-x64 && bun run bundle:linux-arm64 && bun run bundle:darwin-x64 && bun run bundle:darwin-arm64 && bun run bundle:win-x64 && bun run bundle:win-arm64",
-    "bundle:linux-x64": "bun build src/index.ts --minify --sourcemap --compile --target=bun-linux-x64-baseline --outfile dist/bin/hermes-acp-x64-linux",
-    "bundle:linux-arm64": "bun build src/index.ts --minify --sourcemap --compile --target=bun-linux-arm64 --outfile dist/bin/hermes-acp-arm64-linux",
-    "bundle:darwin-x64": "bun build src/index.ts --minify --sourcemap --compile --target=bun-darwin-x64-baseline --outfile dist/bin/hermes-acp-x64-darwin",
-    "bundle:darwin-arm64": "bun build src/index.ts --minify --sourcemap --compile --target=bun-darwin-arm64 --outfile dist/bin/hermes-acp-arm64-darwin",
-    "bundle:win-x64": "bun build src/index.ts --minify --sourcemap --compile --target=bun-windows-x64-baseline --outfile dist/bin/hermes-acp-x64-windows.exe",
-    "bundle:win-arm64": "bun build src/index.ts --minify --sourcemap --compile --target=bun-windows-arm64 --outfile dist/bin/hermes-acp-arm64-windows.exe",
+    "bundle:linux-x64": "bun build src/index.ts --minify --sourcemap --compile --target=bun-linux-x64-baseline --outfile dist/bin/hermes-agent-acp-x64-linux",
+    "bundle:linux-arm64": "bun build src/index.ts --minify --sourcemap --compile --target=bun-linux-arm64 --outfile dist/bin/hermes-agent-acp-arm64-linux",
+    "bundle:darwin-x64": "bun build src/index.ts --minify --sourcemap --compile --target=bun-darwin-x64-baseline --outfile dist/bin/hermes-agent-acp-x64-darwin",
+    "bundle:darwin-arm64": "bun build src/index.ts --minify --sourcemap --compile --target=bun-darwin-arm64 --outfile dist/bin/hermes-agent-acp-arm64-darwin",
+    "bundle:win-x64": "bun build src/index.ts --minify --sourcemap --compile --target=bun-windows-x64-baseline --outfile dist/bin/hermes-agent-acp-x64-windows.exe",
+    "bundle:win-arm64": "bun build src/index.ts --minify --sourcemap --compile --target=bun-windows-arm64 --outfile dist/bin/hermes-agent-acp-arm64-windows.exe",
     "package:all": "bun run package:linux-x64 && bun run package:linux-arm64 && bun run package:darwin-x64 && bun run package:darwin-arm64 && bun run package:win-x64 && bun run package:win-arm64",
-    "package:linux-x64": "zip -j dist/bin/hermes-acp-x64-linux.zip dist/bin/hermes-acp-x64-linux LICENSE NOTICE",
-    "package:linux-arm64": "zip -j dist/bin/hermes-acp-arm64-linux.zip dist/bin/hermes-acp-arm64-linux LICENSE NOTICE",
-    "package:darwin-x64": "zip -j dist/bin/hermes-acp-x64-darwin.zip dist/bin/hermes-acp-x64-darwin LICENSE NOTICE",
-    "package:darwin-arm64": "zip -j dist/bin/hermes-acp-arm64-darwin.zip dist/bin/hermes-acp-arm64-darwin LICENSE NOTICE",
-    "package:win-x64": "zip -j dist/bin/hermes-acp-x64-windows.zip dist/bin/hermes-acp-x64-windows.exe LICENSE NOTICE",
-    "package:win-arm64": "zip -j dist/bin/hermes-acp-arm64-windows.zip dist/bin/hermes-acp-arm64-windows.exe LICENSE NOTICE"
+    "package:linux-x64": "zip -j dist/bin/hermes-agent-acp-x64-linux.zip dist/bin/hermes-agent-acp-x64-linux LICENSE NOTICE",
+    "package:linux-arm64": "zip -j dist/bin/hermes-agent-acp-arm64-linux.zip dist/bin/hermes-agent-acp-arm64-linux LICENSE NOTICE",
+    "package:darwin-x64": "zip -j dist/bin/hermes-agent-acp-x64-darwin.zip dist/bin/hermes-agent-acp-x64-darwin LICENSE NOTICE",
+    "package:darwin-arm64": "zip -j dist/bin/hermes-agent-acp-arm64-darwin.zip dist/bin/hermes-agent-acp-arm64-darwin LICENSE NOTICE",
+    "package:win-x64": "zip -j dist/bin/hermes-agent-acp-x64-windows.zip dist/bin/hermes-agent-acp-x64-windows.exe LICENSE NOTICE",
+    "package:win-arm64": "zip -j dist/bin/hermes-agent-acp-arm64-windows.zip dist/bin/hermes-agent-acp-arm64-windows.exe LICENSE NOTICE"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.4.0"

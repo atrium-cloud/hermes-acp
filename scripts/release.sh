@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Prepare a hermes-acp release: bump the package version, pair it with its
+# Prepare a hermes-agent-acp release: bump the package version, pair it with its
 # curated changelog, create a release commit and annotated tag. The tag
 # triggers .github/workflows/release.yml, which compiles the six binaries and
 # attaches them to the GitHub Release; this script only advances the version
@@ -20,7 +20,7 @@ readonly CHANGELOG_DIR="docs/changelogs"
 
 usage() {
     cat <<'EOF'
-Prepare a hermes-acp release commit and annotated tag.
+Prepare a hermes-agent-acp release commit and annotated tag.
 
 Usage:
   scripts/release.sh [patch|minor|major|X.Y.Z] [--dry-run] [--push]

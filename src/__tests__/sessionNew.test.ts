@@ -8,7 +8,7 @@ import type { GatewayRequestMethod, ScriptedGateway } from './acpTestFixture.js'
 import {
   createAcpTestFixture,
   scriptSessionSettings,
-  TEST_GATEWAY_COMPATIBILITY,
+  TEST_GATEWAY_BUILD_IDENTITY,
   TEST_MODEL_CATALOG,
 } from './acpTestFixture.js'
 
@@ -52,7 +52,7 @@ const sessionInfo: SessionInfo = {
   title: '',
   stored_session_id: STORED_SESSION_ID,
   turn_started_at: null,
-  ...TEST_GATEWAY_COMPATIBILITY,
+  ...TEST_GATEWAY_BUILD_IDENTITY,
 }
 
 // `info` is present here because every real gateway session.create returns it:

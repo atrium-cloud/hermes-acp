@@ -1,10 +1,12 @@
-# hermes-acp
+# hermes-agent-acp
 
-`hermes-acp` is an [Agent Client Protocol](https://agentclientprotocol.com/) v1 adapter for [Hermes Agent](https://github.com/NousResearch/hermes-agent). It uses Hermes' `tui_gateway` backend and presents an ACP surface that is compliant with the latest stable ACP v1 schema.
+`hermes-agent-acp` is an [Agent Client Protocol](https://agentclientprotocol.com/) v1 adapter for [Hermes Agent](https://github.com/NousResearch/hermes-agent). It uses Hermes' `tui_gateway` backend and presents an ACP surface that is compliant with the latest stable ACP v1 schema.
 
 ## Requirements
 
-- Hermes Agent 0.20.4+, configured with a model provider
+- Hermes Agent 0.20.6 or above, configured with a model provider
+
+The binary is `hermes-agent-acp`, not `hermes-acp`: Hermes' own installer, `hermes update`, and `hermes uninstall` all claim `~/.local/bin/hermes-acp` (and `/usr/local/bin/hermes-acp`) for the upstream `hermes acp` launcher, so a binary of that name is overwritten on every Hermes install and deleted on uninstall.
 
 ## ACP support
 
@@ -24,4 +26,4 @@ External pull requests are not accepted. Issues and security reports remain welc
 
 ## Licensing
 
-`hermes-acp` is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE). Attribution notices are in [NOTICE](NOTICE), and brand-use guidance is in [TRADEMARKS.md](TRADEMARKS.md).
+`hermes-agent-acp` is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE). Attribution notices are in [NOTICE](NOTICE), and brand-use guidance is in [TRADEMARKS.md](TRADEMARKS.md).

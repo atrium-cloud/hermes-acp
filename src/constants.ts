@@ -22,8 +22,8 @@ void _acpProtocolVersionPin
 // by session.create in methods_session.py, only defaults an empty value), so
 // sessions created here stay attributable; session.list deny-lists only the
 // internal "kanban"/"tool" sources and surfaces everything else. A literal, not
-// the package name: renaming the package must not orphan the sessions already
-// recorded under this tag.
+// the package name: renaming the package (as the hermes-acp → hermes-agent-acp
+// rename did) must not orphan the sessions already recorded under this tag.
 export const GATEWAY_SESSION_SOURCE = 'hermes-acp'
 
 // ── Gateway transport selection ─────────────────────────────────────────────
@@ -52,32 +52,6 @@ export const DEFAULT_HERMES_BIN = 'hermes'
 // this variable from the adapter's environment.
 export const ENV_HERMES_HOME = 'HERMES_HOME'
 
-// ── Gateway compatibility ───────────────────────────────────────────────────
-//
-// The gateway is an internal Hermes API with no compat promise, and it exposes
-// no version method: `gateway.ready` carries none, and the only version surface
-// in the whole 156-method catalog is `_session_info.version`. So compatibility
-// is checked off session info, on two channels with different timing —
-// `desktop_contract` rides the lazy skeleton (known before `session/new`
-// answers), while `version` arrives only with the full info, which for a fresh
-// session means the deferred agent build's `session.info` EVENT. Both are
-// floors, so an older backend is refused on whichever channel notices first.
-//
-// No upper bound: Hermes releases fast and a newer build is untested, not
-// known-broken, so pinning would make this adapter the thing that breaks on
-// every upgrade. Drift against newer releases is caught by `bun run drift`
-// (docs/refs.md), not at runtime.
-
-export const SUPPORTED_HERMES_MIN = '0.20.4'
-/** Minimum required, not an exact match: the contract counts backend
- * capabilities, so a higher one still provides everything this adapter uses. */
-export const SUPPORTED_DESKTOP_CONTRACT = 6
-
-// Operator escape hatch for an unverified Hermes build: bypasses both channels.
-export const ENV_SKIP_VERSION_CHECK = 'HERMES_ACP_SKIP_VERSION_CHECK'
-export const SKIP_VERSION_CHECK_VALUES: readonly string[] = ['1', 'true']
-export const KEEP_VERSION_CHECK_VALUES: readonly string[] = ['0', 'false']
-
 // ── Session lifecycle (session/list, resume, load, close, delete) ───────────
 //
 // `session.list` upstream has no cursor/cwd params and projects no cwd, so
@@ -90,7 +64,9 @@ export const SESSION_LIST_PAGE_SIZE = 50
 // The persisted stored-id → cwd cache (src/session/sessionDirectory.ts),
 // at <hermes-home>/<dir>/<file>. Hermes' session.list does not report a cwd,
 // so this cache is the only source of truthful cwds for sessions this adapter
-// created in earlier processes.
+// created in earlier processes. A literal like GATEWAY_SESSION_SOURCE: the
+// directory predates the hermes-agent-acp rename and moving it would orphan
+// every cwd recorded so far.
 export const SESSION_DIRECTORY_DIRNAME = 'hermes-acp'
 export const SESSION_DIRECTORY_FILENAME = 'sessions.json'
 
@@ -176,7 +152,7 @@ export const DEFAULT_APPROVAL_CHOICES: readonly string[] = [APPROVAL_CHOICE_ONCE
 // no gateway tool call in flight to attach it to. A dangling toolCallId is the
 // upstream defect this adapter exists to fix, so the row is announced as a real
 // `tool_call` before it is referenced.
-export const APPROVAL_GATE_TOOL_CALL_PREFIX = 'hermes-acp-approval-'
+export const APPROVAL_GATE_TOOL_CALL_PREFIX = 'hermes-agent-acp-approval-'
 
 // ── Clarify ─────────────────────────────────────────────────────────────────
 

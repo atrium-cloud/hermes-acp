@@ -89,13 +89,13 @@ export class SessionDirectory {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         const message = error instanceof Error ? error.message : String(error)
-        console.error(`[hermes-acp] session directory at ${filePath} could not be read; starting empty: ${message}`)
+        console.error(`[hermes-agent-acp] session directory at ${filePath} could not be read; starting empty: ${message}`)
       }
       return new SessionDirectory(filePath, new Map())
     }
     const entries = parseEntries(raw)
     if (entries === null) {
-      console.error(`[hermes-acp] session directory at ${filePath} is corrupt; starting empty`)
+      console.error(`[hermes-agent-acp] session directory at ${filePath} is corrupt; starting empty`)
       return new SessionDirectory(filePath, new Map())
     }
     return new SessionDirectory(filePath, entries)
@@ -148,7 +148,7 @@ export class SessionDirectory {
       renameSync(temporaryPath, this.filePath)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.error(`[hermes-acp] session directory at ${this.filePath} could not be written: ${message}`)
+      console.error(`[hermes-agent-acp] session directory at ${this.filePath} could not be written: ${message}`)
     }
   }
 }

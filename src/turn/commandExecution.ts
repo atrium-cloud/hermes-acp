@@ -92,7 +92,7 @@ export async function runCommand(
 
   if (!('type' in result)) {
     if (result.warning !== undefined && result.warning !== '') {
-      console.error(`[hermes-acp] gateway slash.exec warning for ${invocation.canonicalName}: ${result.warning}`)
+      console.error(`[hermes-agent-acp] gateway slash.exec warning for ${invocation.canonicalName}: ${result.warning}`)
     }
     return endCommandTurn(session, [result.output], failureMark)
   }

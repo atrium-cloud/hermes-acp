@@ -12,7 +12,7 @@ import type { AcpTestFixture, GatewayRequestMethod, ScriptedGateway } from './ac
 import {
   createAcpTestFixture,
   scriptSessionSettings,
-  TEST_GATEWAY_COMPATIBILITY,
+  TEST_GATEWAY_BUILD_IDENTITY,
   UPDATE_DELIVERY_FAILURE,
 } from './acpTestFixture.js'
 
@@ -88,7 +88,7 @@ function sessionInfo(running: boolean): SessionInfo {
     title: '',
     stored_session_id: STORED_SESSION_ID,
     turn_started_at: null,
-    ...TEST_GATEWAY_COMPATIBILITY,
+    ...TEST_GATEWAY_BUILD_IDENTITY,
   }
 }
 
