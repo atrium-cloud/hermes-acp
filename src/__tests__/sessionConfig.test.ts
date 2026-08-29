@@ -16,7 +16,7 @@ import { GatewayRpcError } from '../gateway/GatewayClient.js'
 import type { ConfigSetResult, SessionInfo } from '../gateway/types.js'
 import { modelSwitchParams, modelValueId, parseModelValueId } from '../turn/configOptions.js'
 import type { AcpTestFixture } from './acpTestFixture.js'
-import { createAcpTestFixture, scriptSessionSettings, TEST_GATEWAY_COMPATIBILITY } from './acpTestFixture.js'
+import { createAcpTestFixture, scriptSessionSettings, TEST_GATEWAY_BUILD_IDENTITY } from './acpTestFixture.js'
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -52,7 +52,7 @@ function sessionInfo(overrides: Partial<SessionInfo> = {}): SessionInfo {
     title: '',
     stored_session_id: STORED_SESSION_ID,
     turn_started_at: null,
-    ...TEST_GATEWAY_COMPATIBILITY,
+    ...TEST_GATEWAY_BUILD_IDENTITY,
     ...overrides,
   }
 }

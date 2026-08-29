@@ -15,7 +15,7 @@ import {
   createAcpTestFixture,
   scriptSessionSettings,
   TEST_COMMAND_CATALOG,
-  TEST_GATEWAY_COMPATIBILITY,
+  TEST_GATEWAY_BUILD_IDENTITY,
 } from './acpTestFixture.js'
 
 const TEST_CWD = '/tmp/hermes-acp-session-fork'
@@ -62,7 +62,7 @@ const childSessionInfo: SessionInfo = {
   title: 'parent chat (branch)',
   stored_session_id: CHILD_STORED_SESSION_ID,
   turn_started_at: null,
-  ...TEST_GATEWAY_COMPATIBILITY,
+  ...TEST_GATEWAY_BUILD_IDENTITY,
 }
 
 const branchResult: SessionBranchResult = {

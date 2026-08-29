@@ -36,11 +36,10 @@ export interface SessionInfo {
    * place a Hermes version is reported at all. */
   readonly version: string
   readonly release_date: string
-  /** `DESKTOP_BACKEND_CONTRACT` (6 on the pinned build, server.py 5631). The
-   * coarse compatibility signal, and the early one: unlike `version` it rides
-   * the lazy skeleton too, so it is known before `session/new` answers. Read
-   * as a MINIMUM — the number counts capabilities the backend guarantees, so a
-   * higher contract is backward-compatible by definition. */
+  /** `DESKTOP_BACKEND_CONTRACT` (6 on the reference build, server.py 5631):
+   * the capability count Hermes' own desktop client gates on. Unlike
+   * `version` it rides the lazy skeleton too. Typed because it is on the
+   * wire; this adapter reads neither field (docs/refs.md). */
   readonly desktop_contract: number
 }
 

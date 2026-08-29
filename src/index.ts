@@ -38,11 +38,11 @@ function runSetup(): never {
   const bin = process.env[ENV_HERMES_BIN] ?? DEFAULT_HERMES_BIN
   const result = spawnSync(bin, [...AUTH_SETUP_HERMES_ARGS], { stdio: 'inherit' })
   if (result.error) {
-    console.error(`[hermes-acp] failed to run ${bin} ${AUTH_SETUP_HERMES_ARGS.join(' ')}: ${errorMessage(result.error)}`)
+    console.error(`[hermes-agent-acp] failed to run ${bin} ${AUTH_SETUP_HERMES_ARGS.join(' ')}: ${errorMessage(result.error)}`)
     process.exit(1)
   }
   if (result.signal !== null) {
-    console.error(`[hermes-acp] ${bin} ${AUTH_SETUP_HERMES_ARGS.join(' ')} was killed by ${result.signal}`)
+    console.error(`[hermes-agent-acp] ${bin} ${AUTH_SETUP_HERMES_ARGS.join(' ')} was killed by ${result.signal}`)
     process.exit(1)
   }
   process.exit(result.status ?? 1)
@@ -91,7 +91,7 @@ async function main(): Promise<void> {
   try {
     await gateway.start()
   } catch (error) {
-    console.error(`[hermes-acp] failed to start Hermes gateway: ${errorMessage(error)}`)
+    console.error(`[hermes-agent-acp] failed to start Hermes gateway: ${errorMessage(error)}`)
     await gateway.kill('startup failed')
     process.exit(1)
   }
@@ -110,11 +110,11 @@ async function main(): Promise<void> {
     // supervising client's restart policy can bring the adapter back up.
     gateway.onExit((code) => {
       const reason = `Hermes gateway exited unexpectedly (code ${code ?? 'null'})`
-      console.error(`[hermes-acp] ${reason}`)
+      console.error(`[hermes-agent-acp] ${reason}`)
       void server
         .gatewayExited(reason)
         .catch((error: unknown) => {
-          console.error(`[hermes-acp] failed to settle turns after the gateway exited: ${errorMessage(error)}`)
+          console.error(`[hermes-agent-acp] failed to settle turns after the gateway exited: ${errorMessage(error)}`)
         })
         .finally(() => shutdown(1, 'gateway exited unexpectedly'))
     })
@@ -129,18 +129,18 @@ async function main(): Promise<void> {
       .catch((error: unknown) => {
         // `closed` only resolves today, but the no-unobserved-rejection rule
         // holds regardless: if teardown ever rejects, still bring the process down.
-        console.error(`[hermes-acp] fatal during connection teardown: ${errorMessage(error)}`)
+        console.error(`[hermes-agent-acp] fatal during connection teardown: ${errorMessage(error)}`)
         void shutdown(1, 'connection teardown failed')
       })
   } catch (error) {
     // ACP wiring failed after the gateway child was already spawned; tear it
     // down instead of leaving teardown to the parent-death watchdog.
-    console.error(`[hermes-acp] fatal: ${errorMessage(error)}`)
+    console.error(`[hermes-agent-acp] fatal: ${errorMessage(error)}`)
     await shutdown(1, 'acp wiring failed')
   }
 }
 
 main().catch((error: unknown) => {
-  console.error(`[hermes-acp] fatal: ${errorMessage(error)}`)
+  console.error(`[hermes-agent-acp] fatal: ${errorMessage(error)}`)
   process.exit(1)
 })

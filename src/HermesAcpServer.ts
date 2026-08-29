@@ -65,11 +65,9 @@ import type {
 import { isFullSessionInfo } from './gateway/types.js'
 import type { SessionDirectory } from './session/sessionDirectory.js'
 import type { SessionRecord, SessionStore } from './session/sessionSetup.js'
-import { checkGatewayCompatibility } from './session/gatewayCompatibility.js'
 import {
   forkSession as forkStoredSession,
   openSession,
-  refuseWhileUnsupported,
   resumeSession as resumeStoredSession,
 } from './session/sessionSetup.js'
 import { parseCommandInvocation } from './turn/commands.js'
@@ -159,7 +157,7 @@ export class HermesAcpServer {
       return await this.hermes.modelOptions({}, MODEL_OPTIONS_TIMEOUT_MS)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.error(`[hermes-acp] gateway method model.options failed while building auth methods: ${message}`)
+      console.error(`[hermes-agent-acp] gateway method model.options failed while building auth methods: ${message}`)
       return null
     }
   }
@@ -234,7 +232,7 @@ export class HermesAcpServer {
       // A full fetch means the real list may be longer; every row past the
       // cap is invisible to every page of this response.
       console.error(
-        `[hermes-acp] gateway session.list returned the fetch cap of ${SESSION_LIST_FETCH_CAP} rows; the session list is truncated (see docs/caveats.md)`,
+        `[hermes-agent-acp] gateway session.list returned the fetch cap of ${SESSION_LIST_FETCH_CAP} rows; the session list is truncated (see docs/caveats.md)`,
       )
     }
 
@@ -806,21 +804,6 @@ export class HermesAcpServer {
    * kept rather than announced as gone.
    */
   private applySessionInfo(session: SessionRecord, info: LazySessionInfo): void {
-    // The async compatibility channel, and checked before the `registering`
-    // early-return below: for a fresh session the version arrives ONLY on this
-    // event (the open response carries the lazy skeleton), and the deferred
-    // agent build's first info usually lands inside the registration window.
-    // It cannot throw — the request it would have failed has already answered
-    // — so the record is marked and the next prompt/fork/config change fails.
-    if (session.unsupported === null) {
-      const incompatibility = checkGatewayCompatibility(info)
-      if (incompatibility !== null) {
-        session.unsupported = incompatibility
-        console.error(
-          `[hermes-acp] session ${session.storedSessionId} runs on an unsupported Hermes gateway: ${incompatibility}; it will refuse prompts, forks, and config changes`,
-        )
-      }
-    }
     // The workspace-move skeleton carries no settings (isFullSessionInfo).
     if (!isFullSessionInfo(info)) {
       return
@@ -861,20 +844,19 @@ export class HermesAcpServer {
       await this.hermes.sessionInterrupt(gatewaySessionId)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.error(`[hermes-acp] gateway method session.interrupt failed: ${message}`)
+      console.error(`[hermes-agent-acp] gateway method session.interrupt failed: ${message}`)
     }
   }
 
   /**
-   * Refuse a request that puts new work on a session that cannot take it: an
-   * unsupported gateway, a teardown in flight, or a `session.branch` in flight
-   * (see SessionRecord.closing/forking). One helper for prompt, set_mode, and
+   * Refuse a request that puts new work on a session that cannot take it: a
+   * teardown in flight, or a `session.branch` in flight (see
+   * SessionRecord.closing/forking). One helper for prompt, set_mode, and
    * set_config_option, so they cannot drift into different contracts for the
-   * same windows. Close and delete apply only the fork half: they must work on
-   * an unsupported gateway, and teardown is what they are.
+   * same windows. Close and delete apply only the fork half: teardown is what
+   * they are.
    */
   private refuseUnlessOperable(session: SessionRecord, acpMethod: string, action: string): void {
-    refuseWhileUnsupported(session, acpMethod)
     if (session.closing) {
       throw RequestError.invalidRequest(
         undefined,
@@ -913,7 +895,7 @@ export class HermesAcpServer {
     if (event.type === 'error') {
       // Logged regardless of routing: a session-less gateway error would
       // otherwise vanish, and it is the only diagnostic Hermes gives here.
-      console.error(`[hermes-acp] gateway error event: ${event.payload?.message ?? '(no message)'}`)
+      console.error(`[hermes-agent-acp] gateway error event: ${event.payload?.message ?? '(no message)'}`)
     }
     if (event.session_id === undefined) {
       return
@@ -960,14 +942,14 @@ export class HermesAcpServer {
           .catch((error: unknown) => {
             const message = error instanceof Error ? error.message : String(error)
             console.error(
-              `[hermes-acp] gateway method approval.respond failed while denying approval ${requestId} on idle session ${session.gatewaySessionId}: ${message}`,
+              `[hermes-agent-acp] gateway method approval.respond failed while denying approval ${requestId} on idle session ${session.gatewaySessionId}: ${message}`,
             )
           })
         return
       }
       if (event.type === 'clarify.request') {
         console.error(
-          `[hermes-acp] dropped clarify.request ${event.payload.request_id}: session ${session.gatewaySessionId} has no turn in flight`,
+          `[hermes-agent-acp] dropped clarify.request ${event.payload.request_id}: session ${session.gatewaySessionId} has no turn in flight`,
         )
         return
       }

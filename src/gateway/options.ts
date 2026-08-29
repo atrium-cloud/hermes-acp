@@ -14,13 +14,10 @@ import {
   ENV_HERMES_HOME,
   ENV_RPC_TIMEOUT_MS,
   ENV_SESSION_TOKEN,
-  ENV_SKIP_VERSION_CHECK,
   ENV_STARTUP_TIMEOUT_MS,
   GATEWAY_MODE_ATTACH,
   GATEWAY_MODE_SERVE,
-  KEEP_VERSION_CHECK_VALUES,
   MAX_TIMEOUT_MS,
-  SKIP_VERSION_CHECK_VALUES,
 } from '../constants.js'
 
 export type GatewayMode = typeof GATEWAY_MODE_SERVE | typeof GATEWAY_MODE_ATTACH
@@ -100,36 +97,6 @@ export function resolveHermesHome(env: NodeJS.ProcessEnv): string {
   return resolve(homedir(), '.hermes')
 }
 
-/**
- * Whether the operator disarmed the gateway compatibility check
- * (src/session/sessionSetup.ts `checkGatewayCompatibility`).
- *
- * Read here rather than at module load so the value is current for every check,
- * and read through the same fail-fast discipline as the other env parsing: a
- * typo'd value would otherwise leave the check silently armed on a build the
- * operator believes they bypassed. `gatewayOptionsFromEnv` also validates it
- * eagerly, so a malformed value fails at startup rather than inside the first
- * session's event handler.
- */
-export function versionCheckSkipped(env: NodeJS.ProcessEnv): boolean {
-  const raw = env[ENV_SKIP_VERSION_CHECK]?.trim().toLowerCase()
-  if (!raw) {
-    return false
-  }
-  if (SKIP_VERSION_CHECK_VALUES.includes(raw)) {
-    return true
-  }
-  // `=false`/`=0` is how an operator says "leave the check armed", so it is an
-  // answer rather than a typo; anything else is neither and must not be read
-  // as one.
-  if (KEEP_VERSION_CHECK_VALUES.includes(raw)) {
-    return false
-  }
-  throw new Error(
-    `${ENV_SKIP_VERSION_CHECK} must be one of ${[...SKIP_VERSION_CHECK_VALUES, ...KEEP_VERSION_CHECK_VALUES].join('|')} when set, got ${JSON.stringify(env[ENV_SKIP_VERSION_CHECK])}`,
-  )
-}
-
 export const parseEnvMilliseconds = (name: string, raw: string | undefined, fallback: number): number => {
   const trimmed = raw?.trim()
   if (!trimmed) {
@@ -175,12 +142,6 @@ export function gatewayOptionsFromEnv(env: NodeJS.ProcessEnv): GatewayClientOpti
   // The adapter-owned token variable first; the Hermes-owned ambient one (a
   // Hermes Desktop shell may export it) is the fallback.
   const sessionToken = env[ENV_SESSION_TOKEN]?.trim() || env[ENV_DASHBOARD_SESSION_TOKEN]?.trim()
-
-  // Applies to both modes, so unlike the mode-scoped variables it has nothing
-  // to contradict — but validate it here anyway so a malformed value fails at
-  // startup instead of inside the first session's event handler
-  // (checkGatewayCompatibility only sees sessions whose info arrived).
-  versionCheckSkipped(env)
 
   return {
     mode,

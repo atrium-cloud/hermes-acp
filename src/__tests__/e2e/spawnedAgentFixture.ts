@@ -145,7 +145,7 @@ export function spawnAgentProcess(
     env: {
       // Hermetic tier: every adapter/Hermes variable shares the HERMES_
       // prefix (src/constants.ts), so drop them all rather than let host
-      // config (e.g. an operator's HERMES_ACP_SKIP_VERSION_CHECK) steer the
+      // config (e.g. an operator's HERMES_ACP_RPC_TIMEOUT_MS) steer the
       // child. The explicit entries below re-add what the tier needs.
       ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('HERMES_'))),
       [ENV_HERMES_HOME]: hermesHome,

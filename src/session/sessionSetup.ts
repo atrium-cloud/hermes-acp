@@ -20,7 +20,6 @@ import {
 } from '../constants.js'
 import { gatewayMethodError } from '../errors.js'
 import type { HermesGateway } from '../gateway/HermesGatewayClient.js'
-import { checkGatewayCompatibility, unsupportedGatewayError } from './gatewayCompatibility.js'
 import type {
   LazySessionInfo,
   ModelOptionsResult,
@@ -103,12 +102,6 @@ export interface SessionRecord {
    * client has not been told the session exists yet, so updates are held back
    * and the response carries the merged state instead. */
   registering: boolean
-  /** Why this session's gateway is unsupported, or null while it is fine. Set
-   * only by the async channel: a `session.info` event carrying an out-of-range
-   * version arrives after the open request already answered, so the record is
-   * marked and the NEXT session-scoped request fails instead. Sticky — the
-   * gateway's version cannot change under a running process. */
-  unsupported: string | null
   /** Slash commands advertised for this session, and the table a prompt is
    * matched against. Empty when the catalog read failed — commands are an
    * enhancement, not a precondition for the session. */
@@ -137,27 +130,6 @@ export interface SessionStore {
  * never used to build client-bound options, only to hold the field until the
  * read lands (see `registering`). */
 const EMPTY_MODEL_CATALOG: ModelOptionsResult = {}
-
-// ── Gateway compatibility ───────────────────────────────────────────────────
-
-/**
- * Refuse a request that cannot be honored on an unsupported gateway.
- *
- * Deliberately NOT applied in `requireSession`: `session/close`,
- * `session/delete`, `session/cancel`, and `session/list` must keep working, or
- * a client that opened a session against an unsupported Hermes could never
- * clean it up. Only the four requests that would put new work on the gateway
- * are refused.
- */
-export function refuseWhileUnsupported(session: SessionRecord, acpMethod: string): void {
-  if (session.unsupported === null) {
-    return
-  }
-  throw unsupportedGatewayError(
-    acpMethod,
-    `session ${session.storedSessionId} runs on an unsupported Hermes gateway: ${session.unsupported}`,
-  )
-}
 
 /**
  * The request validation `session/new`, `session/resume`, `session/load`, and
@@ -291,9 +263,6 @@ export async function forkSession(
   if (parent === undefined) {
     throw RequestError.invalidParams(undefined, `ACP session/fork: unknown session ${params.sessionId}`)
   }
-  // A fork puts new work on the gateway — it builds a whole child agent — so
-  // it is refused on a session already known to run an unsupported Hermes.
-  refuseWhileUnsupported(parent, 'session/fork')
   // Same teardown race the prompt guard covers: a fork arriving mid-teardown
   // would branch a gateway session that is being closed, and register a child
   // whose parent stops existing a moment later.
@@ -652,7 +621,7 @@ async function readStoredTitle(hermes: HermesGateway, storedKey: string): Promis
     result = await hermes.sessionList({ limit: SESSION_LIST_FETCH_CAP })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error(`[hermes-acp] gateway method session.list failed while reading the resumed session's title; the replay carries no title: ${message}`)
+    console.error(`[hermes-agent-acp] gateway method session.list failed while reading the resumed session's title; the replay carries no title: ${message}`)
     return undefined
   }
   const row = result.sessions.find((candidate) => candidate.id === storedKey)
@@ -703,7 +672,6 @@ async function establishSession(
     activePrompt: null,
     closing: false,
     forking: false,
-    unsupported: null,
     modelCatalog: EMPTY_MODEL_CATALOG,
     settings: provisionalSettings,
     registering: true,
@@ -713,17 +681,6 @@ async function establishSession(
   store.liveIndex.set(identity.gatewaySessionId, identity.storedSessionId)
 
   try {
-    // Inside the try so the cleanup below owns this failure too: the gateway
-    // session exists by now (a fork's child is fully built), and an
-    // unsupported gateway must not leave one running with no record on it.
-    // This is the synchronous channel — whatever the open response's info
-    // reports fails the open itself, for new/resume/load and for fork, whose
-    // `session.branch` answers with the FULL info rather than the skeleton.
-    const incompatibility = checkGatewayCompatibility(identity.info)
-    if (incompatibility !== null) {
-      throw unsupportedGatewayError(identity.acpMethod, incompatibility)
-    }
-
     const initial = await initialSessionState(hermes, identity.gatewaySessionId, identity.info)
     const commands = await readCommandCatalog(hermes)
 
@@ -737,17 +694,6 @@ async function establishSession(
     }
     session.commands = commands
     session.registering = false
-
-    // The reads above are gateway round-trips, and the deferred agent build's
-    // first `session.info` — the frame that carries the version at all — often
-    // lands inside exactly that window. `applySessionInfo` can only mark the
-    // record there, because it has no request to fail; this re-check is that
-    // request. Answering `session/new` with modes and configOptions for a
-    // session whose very next prompt is going to be refused is the kind of
-    // healthy-looking lie the open path exists to prevent.
-    if (session.unsupported !== null) {
-      throw unsupportedGatewayError(identity.acpMethod, session.unsupported)
-    }
   } catch (error) {
     // This catch owns the whole failure cleanup, whichever read threw: the
     // registration goes (a record pointing at a dead session would accept
@@ -802,12 +748,12 @@ async function readCommandCatalog(hermes: HermesGateway): Promise<CommandCatalog
   try {
     const catalog = await hermes.commandsCatalog()
     if (catalog.warning !== undefined && catalog.warning !== '') {
-      console.error(`[hermes-acp] gateway commands.catalog reported a partial build: ${catalog.warning}`)
+      console.error(`[hermes-agent-acp] gateway commands.catalog reported a partial build: ${catalog.warning}`)
     }
     return buildCommandCatalog(catalog)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error(`[hermes-acp] gateway method commands.catalog failed; session opens without slash commands: ${message}`)
+    console.error(`[hermes-agent-acp] gateway method commands.catalog failed; session opens without slash commands: ${message}`)
     return EMPTY_COMMAND_CATALOG
   }
 }
@@ -879,6 +825,6 @@ async function closeQuietly(hermes: HermesGateway, gatewaySessionId: string, rea
     await hermes.sessionClose(gatewaySessionId)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error(`[hermes-acp] gateway method session.close failed while ${reason}: ${message}`)
+    console.error(`[hermes-agent-acp] gateway method session.close failed while ${reason}: ${message}`)
   }
 }

@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { ENV_DASHBOARD_SESSION_TOKEN, ENV_GATEWAY_MODE, ENV_HERMES_BIN, ENV_SESSION_TOKEN, ENV_SKIP_VERSION_CHECK } from '../constants.js'
+import { ENV_DASHBOARD_SESSION_TOKEN, ENV_GATEWAY_MODE, ENV_HERMES_BIN, ENV_SESSION_TOKEN } from '../constants.js'
 import { expandHome, gatewayOptionsFromEnv, parseEnvMilliseconds } from '../gateway/options.js'
 
 describe('gatewayOptionsFromEnv', () => {
@@ -61,17 +61,6 @@ describe('gatewayOptionsFromEnv', () => {
     )
     expect(() => gatewayOptionsFromEnv({ HERMES_ACP_RPC_TIMEOUT_MS: 'soon' })).toThrow(
       /HERMES_ACP_RPC_TIMEOUT_MS must be a positive integer/,
-    )
-  })
-
-  it('validates HERMES_ACP_SKIP_VERSION_CHECK eagerly so a typo fails at startup', () => {
-    // Otherwise a malformed value only throws from inside the first session's
-    // event handler, where the gateway event loop would drop the whole event.
-    for (const accepted of ['1', 'true', '0', 'false', ' TRUE ', '']) {
-      expect(() => gatewayOptionsFromEnv({ [ENV_SKIP_VERSION_CHECK]: accepted })).not.toThrow()
-    }
-    expect(() => gatewayOptionsFromEnv({ [ENV_SKIP_VERSION_CHECK]: 'yes' })).toThrow(
-      /HERMES_ACP_SKIP_VERSION_CHECK must be one of 1\|true\|0\|false when set/,
     )
   })
 })

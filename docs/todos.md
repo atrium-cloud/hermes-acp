@@ -1,4 +1,4 @@
-# hermes-acp roadmap
+# hermes-agent-acp roadmap
 
 Purpose: expose Hermes Agent as a clean ACP v1 agent by building on its `tui_gateway` JSON-RPC backend instead of its defective `hermes acp` adapter. Retire once Hermes adopts current ACP schemas upstream.
 
@@ -48,9 +48,9 @@ Breakpoint fork, steering, and MCP passthrough were evaluated and deliberately n
 - [x] Snapshot test harness modeled on codex-acp's: scripted gateway events in, recorded ACP transcript out.
 - [x] E2E harness (`src/__tests__/e2e/`): drives the BUILT `dist/index.js` as a real ACP client against a scratch `HERMES_HOME`; gated on `RUN_HERMES_E2E=true`, key via child environment only.
 - [ ] E2E outcomes: run the tier on a cloud Linux VM and record the live model-switch checks and half-dead-client characterization; the hang shape decides whether a write timeout is needed.
-- [x] Supported Hermes floor enforced at runtime: two-channel version/contract check, below refuses, no upper bound; confirmed live against Hermes 0.20.5 in a cloud Linux VM E2E. `HERMES_ACP_SKIP_VERSION_CHECK` disarms.
+- [x] No runtime Hermes version gate: like codex-acp and claude-agent-acp, Hermes is an external runtime dependency (0.20.6 and above, docs/refs.md + `bun run drift`), not a check. The two-channel version/contract floor and `HERMES_ACP_SKIP_VERSION_CHECK` were removed 2026-08-29.
 - [x] Distribution is GitHub Releases only (no npm): `package.json` stays `private`; release zips carry LICENSE and NOTICE alongside the binary; `#!/usr/bin/env node` hashbang on `src/index.ts`; `package.json` read via static import (not `createRequire`) so `bun build --compile` binaries boot without a filesystem.
-- [x] CI (`.github/workflows/ci.yml`): typecheck, unit tests, esbuild bundle `--version` smoke, and a cross-compile of all six binaries on push/PR to main (Bun 1.3.11).
+- [x] CI (`.github/workflows/ci.yml`): typecheck, unit tests, esbuild bundle `--version` smoke, and a cross-compile of all six binaries on push/PR to main (Bun 1.4.0).
 - [x] Release: `scripts/release.sh [patch|minor|major|X.Y.Z] [--dry-run] [--push]` bumps `package.json` (the initial release tags the current version as-is), requires `docs/changelogs/vX.Y.Z.md`, runs the pre-commit gates, commits and annotated-tags; `.github/workflows/release.yml` is tag-triggered (`v*`) and `bundle:all`/`package:all` produce six `bun --compile` binaries (`{x64,arm64}-{linux,darwin,windows}`) attached to the GitHub Release, whose body is `docs/changelogs/<tag>.md` (the workflow fails without it) with generated commit notes appended.
 - [x] Pre-commit hook (`.githooks/pre-commit`, installed via `core.hooksPath` by the `prepare` script): typecheck, unit tests, build, `--version` smoke. Binaries are compiled only in CI and the release workflow.
 
@@ -65,7 +65,6 @@ Breakpoint fork, steering, and MCP passthrough were evaluated and deliberately n
 
 Flagged against codex-acp/claude-agent-acp in the pre-release review (2026-08-28); each needs an answer before it is a code change.
 
-- [ ] Version lane: `desktop_contract` is checked synchronously at open; the `version` floor needs the async `unsupported` lane (`SessionRecord.unsupported`, `refuseWhileUnsupported`, the `establishSession` re-check). If contract 6 first shipped in 0.20.4, the lane is redundant with the contract floor and can go.
 - [ ] `SessionStore`/`CommandExecutionContext` context bags exist so `sessionSetup.ts` and `commandExecution.ts` can be free functions; codex-acp keeps the same work as methods. Revisit if a third bag appears.
 - [ ] `SessionUpdateSender` serializes notifications itself; the SDK already serializes wire writes in call order (`sendWireMessage`), so the queue may be reducible to failure counting plus `drainSince`.
 

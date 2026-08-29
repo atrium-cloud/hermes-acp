@@ -2,7 +2,7 @@
 
 ## About This Project
 
-`hermes-acp` is an ACP v1 adapter for Hermes Agent (nousresearch/hermes-agent). Hermes ships its own ACP adapter (`hermes acp`), but it speaks pre-1.0 shapes inside a v1 handshake and has structural UX problems that cannot be fixed from outside. This adapter instead builds on Hermes' `tui_gateway` (the JSON-RPC backend behind `hermes --tui` and `hermes serve`) and owns the full ACP v1 surface itself, the same architecture codex-acp uses over `codex app-server`.
+`hermes-agent-acp` is an ACP v1 adapter for Hermes Agent (nousresearch/hermes-agent). Hermes ships its own ACP adapter (`hermes acp`, whose `hermes-acp` launcher its installer claims on PATH, hence this project's binary name), but it speaks pre-1.0 shapes inside a v1 handshake and has structural UX problems that cannot be fixed from outside. This adapter instead builds on Hermes' `tui_gateway` (the JSON-RPC backend behind `hermes --tui` and `hermes serve`) and owns the full ACP v1 surface itself, the same architecture codex-acp uses over `codex app-server`.
 
 Once Hermes Agent officially adopts a current ACP schema, this repo can be considered for deprecation.
 
