@@ -1,6 +1,6 @@
 {
   "name": "hermes-agent-acp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "ACP v1 adapter for Hermes Agent, built on the Hermes tui_gateway",
   "license": "Apache-2.0",
