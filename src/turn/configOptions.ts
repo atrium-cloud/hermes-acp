@@ -50,6 +50,8 @@ import {
   MODEL_CONFIRM_YES,
   MODEL_PROVIDER_FLAG,
   MODEL_VALUE_SEPARATOR,
+  PROVIDER_ENTRY_SEPARATOR,
+  PROVIDER_SLUG_CUSTOM,
   SESSION_MODE_DEFAULT,
   SESSION_MODE_DEFAULT_NAME,
   SESSION_MODE_DONT_ASK,
@@ -118,8 +120,34 @@ export function modelValueId(provider: string, model: string): string {
   // matching no option and synthesize a duplicate group. Upstream resolves
   // provider names case-insensitively, so the lowercased slug is also what the
   // value reverses into on the way back to `config.set`.
-  const slug = provider.trim().toLowerCase()
+  const slug = normalizeProviderSlug(provider)
   return slug === '' ? model : `${slug}${MODEL_VALUE_SEPARATOR}${model}`
+}
+
+/**
+ * The provider slug a value id is spelled with.
+ *
+ * The custom lane has two spellings upstream: `model.options` advertises the
+ * whole lane as the bare slug `custom`, while a session configured against a
+ * named `providers:` entry reports the qualified reference (`custom:<entry>`)
+ * in `session.info.provider`. Both name the same lane, so the entry qualifier
+ * is dropped and the catalog's own spelling wins — otherwise a value derived
+ * from session info would match no advertised option and a re-set of the model
+ * already selected would look like a change. `config.set` resolves the bare
+ * lane back to the configured entry, which is what makes the reverse direction
+ * work — observed live on Hermes 0.20.6 (docs/refs.md), not read out of a
+ * server.py branch the way the rest of this file's wire notes are.
+ *
+ * The qualifier is dropped only for this lane. Any other colon-carrying
+ * reference is left verbatim, so it still matches a catalog row spelled the
+ * same way, and falls through to the synthesized group when it matches none.
+ *
+ * Distinct entries of the custom lane are not distinguishable in a value id.
+ * Neither are they in the catalog, which advertises the lane once.
+ */
+function normalizeProviderSlug(provider: string): string {
+  const slug = provider.trim().toLowerCase()
+  return slug.startsWith(`${PROVIDER_SLUG_CUSTOM}${PROVIDER_ENTRY_SEPARATOR}`) ? PROVIDER_SLUG_CUSTOM : slug
 }
 
 export interface ModelSelection {
@@ -137,7 +165,17 @@ export function parseModelValueId(valueId: string): ModelSelection {
   if (separator < 0) {
     return { provider: '', model: valueId }
   }
-  return { provider: valueId.slice(0, separator), model: valueId.slice(separator + 1) }
+  // Normalized on the way out too, so a value id that reached the adapter in
+  // some other spelling than the one it advertises — a client echoing back
+  // what an older build reported — still names the lane the switch has to go
+  // to, and still matches the catalog group it belongs in.
+  return { provider: normalizeProviderSlug(valueId.slice(0, separator)), model: valueId.slice(separator + 1) }
+}
+
+/** A value id in the one spelling the option advertises it under. */
+export function canonicalModelValueId(valueId: string): string {
+  const selection = parseModelValueId(valueId)
+  return modelValueId(selection.provider, selection.model)
 }
 
 /** The `config.set` params a model value id reverses into. */
@@ -217,7 +255,9 @@ function modelGroups(catalog: ModelOptionsResult, currentValueId: string): Sessi
       continue
     }
     const options = models.map((model) => ({ value: modelValueId(provider.slug, model), name: model }))
-    optionsBySlug.set(provider.slug.trim().toLowerCase(), options)
+    // Keyed the way the option values are spelled, so the append-below finds
+    // the group whose options a synthesized entry would sit among.
+    optionsBySlug.set(normalizeProviderSlug(provider.slug), options)
     groups.push({ group: provider.slug, name: provider.name, options })
   }
 
