@@ -197,6 +197,13 @@ export const MODEL_VALUE_SEPARATOR = '/'
 export const CONFIG_KEY_MODEL = 'model'
 export const MODEL_PROVIDER_FLAG = '--provider'
 
+// The custom-endpoint lane, and the separator that qualifies a reference to it
+// with the name of a `providers:` entry in config.yaml (`custom:my-endpoint`).
+// The catalog advertises the lane by its bare slug while session info reports
+// the qualified reference, so a value id has to pick one (modelValueId).
+export const PROVIDER_SLUG_CUSTOM = 'custom'
+export const PROVIDER_ENTRY_SEPARATOR = ':'
+
 // Deliberately not id "mode" nor category "mode": both are the session-mode
 // lane in ACP clients, and this option is the gateway's GLOBAL approval policy
 // (config.yaml `approvals.mode`), not a per-session mode.

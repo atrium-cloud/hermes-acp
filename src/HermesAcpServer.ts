@@ -76,6 +76,7 @@ import {
   APPROVAL_MODE_VALUES,
   approvalModeSwitchParams,
   buildConfigOptions,
+  canonicalModelValueId,
   isKnownModeId,
   isModelConfirmed,
   modelConfirmElicitation,
@@ -442,7 +443,11 @@ export class HermesAcpServer {
       // this is the only place the record can learn about it. Later
       // `session.info` frames report the pending pick as current, which now
       // matches and stays silent instead of announcing it a second time.
-      session.settings = { ...session.settings, modelValueId: valueId }
+      // Canonicalized rather than stored as sent: the later `session.info`
+      // frames this is compared against are canonical, and a client that sent
+      // some other spelling of the same selection would otherwise read as a
+      // change the moment one arrives.
+      session.settings = { ...session.settings, modelValueId: canonicalModelValueId(valueId) }
     }
 
     // Built from the record rather than from `result`: on an agent-backed

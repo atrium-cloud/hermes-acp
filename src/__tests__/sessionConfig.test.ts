@@ -13,8 +13,8 @@ import { describe, expect, it } from 'vitest'
 
 import { PROTOCOL_VERSION } from '../constants.js'
 import { GatewayRpcError } from '../gateway/GatewayClient.js'
-import type { ConfigSetResult, SessionInfo } from '../gateway/types.js'
-import { modelSwitchParams, modelValueId, parseModelValueId } from '../turn/configOptions.js'
+import type { ConfigSetResult, ModelOptionsResult, SessionInfo } from '../gateway/types.js'
+import { canonicalModelValueId, modelSwitchParams, modelValueId, parseModelValueId } from '../turn/configOptions.js'
 import type { AcpTestFixture } from './acpTestFixture.js'
 import { createAcpTestFixture, scriptSessionSettings, TEST_GATEWAY_BUILD_IDENTITY } from './acpTestFixture.js'
 
@@ -29,6 +29,26 @@ const STORED_SESSION_ID = 'stored-1'
 const CURRENT_MODEL_VALUE = 'nous/hermes-4-70b'
 const OTHER_MODEL_VALUE = 'nous/hermes-4-405b'
 const CROSS_PROVIDER_VALUE = 'openrouter/deepseek/deepseek-v4-flash'
+
+// A session pointed at a named `providers:` entry of the custom lane
+// (config.yaml `model.provider: custom:acps-managed`). `model.options`
+// advertises the lane as one `custom` row while `session.info` reports the
+// qualified entry reference, so both spellings describe this one selection.
+const CUSTOM_MODEL = 'z-ai/glm-5.3-flash'
+const CUSTOM_ENTRY_PROVIDER = 'custom:acps-managed'
+const CUSTOM_MODEL_VALUE = 'custom/z-ai/glm-5.3-flash'
+const CUSTOM_LANE_CATALOG: ModelOptionsResult = {
+  model: CUSTOM_MODEL,
+  // The catalog's top level reports config.yaml's `model.provider` while its
+  // rows carry lane slugs. The qualified spelling is used here because it is
+  // the harder of the two the top level can carry; the live repro opened with
+  // the bare lane, which is the same path every native provider takes.
+  provider: CUSTOM_ENTRY_PROVIDER,
+  providers: [
+    { slug: 'nous', name: 'Nous Research', models: ['hermes-4-70b', 'hermes-4-405b'], authenticated: true },
+    { slug: 'custom', name: 'Custom', models: [CUSTOM_MODEL], is_current: true, authenticated: true },
+  ],
+}
 
 /** tui_gateway rejects an unknown model id under this code (server.py ~12030). */
 const BOGUS_MODEL_MESSAGE = "unknown model 'not-a-model'; run /model to list available models"
@@ -78,11 +98,15 @@ async function settle(): Promise<void> {
   }
 }
 
-async function openSession(fixture: AcpTestFixture, supportsElicitation = true): Promise<void> {
+async function openSession(
+  fixture: AcpTestFixture,
+  supportsElicitation = true,
+  catalog?: ModelOptionsResult,
+): Promise<void> {
   // Scripted before initialize: the auth-method build reads the model catalog
   // too, and leaving it unscripted only produces a stderr line, not a failure.
   fixture.gateway.setResult('sessionCreate', { session_id: SESSION_ID, stored_session_id: STORED_SESSION_ID })
-  scriptSessionSettings(fixture.gateway)
+  scriptSessionSettings(fixture.gateway, catalog ? { catalog } : {})
   await fixture.client.request(acp.methods.agent.initialize, {
     protocolVersion: PROTOCOL_VERSION,
     clientCapabilities: supportsElicitation ? { elicitation: { form: {} } } : {},
@@ -108,6 +132,16 @@ async function emitSessionInfo(fixture: AcpTestFixture, info: SessionInfo): Prom
     throw new Error(`session ${STORED_SESSION_ID} is not open`)
   }
   await record.updates.drained()
+}
+
+/** Every value the model select advertises, groups flattened away. */
+function advertisedModelValues(configOptions: acp.SessionConfigOption[] | null | undefined): string[] {
+  const option = configOptions?.find((entry) => entry.id === 'model')
+  if (!option || option.type !== 'select') {
+    throw new Error('response carried no model select option')
+  }
+  const entries: readonly (acp.SessionConfigSelectOption | acp.SessionConfigSelectGroup)[] = option.options
+  return entries.flatMap((entry) => ('group' in entry ? entry.options.map((choice) => choice.value) : [entry.value]))
 }
 
 function currentModelValue(fixture: AcpTestFixture, response: acp.SetSessionConfigOptionResponse): string {
@@ -278,10 +312,135 @@ describe('session/set_config_option: model', () => {
 
       const update = updates(fixture)[0] as { configOptions: acp.SessionConfigOption[] }
       const option = update.configOptions.find((entry) => entry.id === 'model')
-      expect(option).toMatchObject({ currentValue: 'custom:lmstudio/local-llama' })
+      // The catalog this session opened on carries no custom row at all, so the
+      // lane is synthesized — under its own spelling, not the entry's.
+      expect(option).toMatchObject({ currentValue: 'custom/local-llama' })
       // A select whose currentValue names no option is malformed, so the live
       // model is added rather than dropped.
-      expect(JSON.stringify(option)).toContain('custom:lmstudio/local-llama')
+      expect(advertisedModelValues(update.configOptions)).toContain('custom/local-llama')
+    } finally {
+      fixture.close()
+    }
+  })
+})
+
+describe('named custom provider entries', () => {
+  it('reports the session model under the lane spelling session/new advertised', async () => {
+    const fixture = createAcpTestFixture()
+    try {
+      fixture.gateway.setResult('sessionCreate', { session_id: SESSION_ID, stored_session_id: STORED_SESSION_ID })
+      scriptSessionSettings(fixture.gateway, { catalog: CUSTOM_LANE_CATALOG })
+
+      const response = await fixture.client.request(acp.methods.agent.session.new, {
+        cwd: TEST_CWD,
+        mcpServers: [],
+      })
+      const option = response.configOptions?.find((entry) => entry.id === 'model')
+      expect(option).toMatchObject({ currentValue: CUSTOM_MODEL_VALUE })
+      expect(advertisedModelValues(response.configOptions)).toContain(CUSTOM_MODEL_VALUE)
+
+      // The gateway's own report of the same selection names the entry rather
+      // than the lane. That is the same model, so it is not a transition and
+      // must not restate the current value in a spelling no option carries.
+      fixture.clearTranscript()
+      await emitSessionInfo(fixture, sessionInfo({ model: CUSTOM_MODEL, provider: CUSTOM_ENTRY_PROVIDER }))
+      expect(updates(fixture)).toEqual([])
+      expect(fixture.server.session(STORED_SESSION_ID)?.settings.modelValueId).toBe(CUSTOM_MODEL_VALUE)
+    } finally {
+      fixture.close()
+    }
+  })
+
+  it('echoes the value that was set after the gateway confirms it as the entry', async () => {
+    const fixture = createAcpTestFixture()
+    try {
+      await openSession(fixture, true, CUSTOM_LANE_CATALOG)
+      fixture.gateway.setResult('configSet', { key: 'model', value: CUSTOM_MODEL })
+
+      const response = await fixture.client.request(acp.methods.agent.session.setConfigOption, {
+        sessionId: STORED_SESSION_ID,
+        configId: 'model',
+        value: CUSTOM_MODEL_VALUE,
+      })
+
+      // The lane resolves back to the configured entry gateway-side, so the
+      // bare slug is what the switch carries.
+      expect(fixture.gateway.recordedCalls()).toEqual([
+        {
+          method: 'configSet',
+          args: [{ key: 'model', value: `${CUSTOM_MODEL} --provider custom`, session_id: SESSION_ID }],
+        },
+      ])
+      expect(currentModelValue(fixture, response)).toBe(CUSTOM_MODEL_VALUE)
+
+      await emitSessionInfo(fixture, sessionInfo({ model: CUSTOM_MODEL, provider: CUSTOM_ENTRY_PROVIDER }))
+      expect(updates(fixture)).toEqual([])
+      expect(fixture.server.session(STORED_SESSION_ID)?.settings.modelValueId).toBe(CUSTOM_MODEL_VALUE)
+    } finally {
+      fixture.close()
+    }
+  })
+
+  it('canonicalizes a deferred pick that arrived under the entry spelling', async () => {
+    const fixture = createAcpTestFixture()
+    try {
+      await openSession(fixture, true, CUSTOM_LANE_CATALOG)
+      fixture.gateway.setResult('configSet', { key: 'model', value: CUSTOM_MODEL, deferred: true })
+
+      // A client echoing back a value some older build reported: the same
+      // selection, spelled as the entry rather than as the lane.
+      const response = await fixture.client.request(acp.methods.agent.session.setConfigOption, {
+        sessionId: STORED_SESSION_ID,
+        configId: 'model',
+        value: `${CUSTOM_ENTRY_PROVIDER}/${CUSTOM_MODEL}`,
+      })
+
+      expect(currentModelValue(fixture, response)).toBe(CUSTOM_MODEL_VALUE)
+      // The queued pick is what later session.info frames are compared against,
+      // so it has to be held in the spelling those frames reduce to.
+      await emitSessionInfo(fixture, sessionInfo({ model: CUSTOM_MODEL, provider: CUSTOM_ENTRY_PROVIDER }))
+      expect(updates(fixture)).toEqual([])
+    } finally {
+      fixture.close()
+    }
+  })
+
+  it('leaves the unqualified custom lane and native lanes spelled as reported', async () => {
+    const fixture = createAcpTestFixture()
+    try {
+      await openSession(fixture, true, CUSTOM_LANE_CATALOG)
+
+      // A config without a named entry reports the lane itself, which is
+      // already the spelling the options carry.
+      await emitSessionInfo(fixture, sessionInfo({ model: CUSTOM_MODEL, provider: 'custom' }))
+      expect(updates(fixture)).toEqual([])
+
+      await emitSessionInfo(fixture, sessionInfo({ model: 'hermes-4-405b', provider: 'nous' }))
+      const update = updates(fixture)[0] as { configOptions: acp.SessionConfigOption[] }
+      expect(update.configOptions.find((entry) => entry.id === 'model')).toMatchObject({
+        currentValue: OTHER_MODEL_VALUE,
+      })
+      expect(advertisedModelValues(update.configOptions)).toContain(OTHER_MODEL_VALUE)
+    } finally {
+      fixture.close()
+    }
+  })
+
+  it('offers a qualified reference to some other lane under its own spelling', async () => {
+    const fixture = createAcpTestFixture()
+    try {
+      await openSession(fixture, true, CUSTOM_LANE_CATALOG)
+
+      // Only the custom lane's entry qualifier is dropped. Anything else is
+      // reported as it arrived, and the synthesized option carries the same
+      // value, so the select still names its own current value.
+      await emitSessionInfo(fixture, sessionInfo({ model: 'some-model', provider: 'bespoke:endpoint' }))
+
+      const update = updates(fixture)[0] as { configOptions: acp.SessionConfigOption[] }
+      expect(update.configOptions.find((entry) => entry.id === 'model')).toMatchObject({
+        currentValue: 'bespoke:endpoint/some-model',
+      })
+      expect(advertisedModelValues(update.configOptions)).toContain('bespoke:endpoint/some-model')
     } finally {
       fixture.close()
     }
@@ -751,6 +910,22 @@ describe('model value ids', () => {
       provider: 'openrouter',
       model: 'deepseek/deepseek-v4-flash',
     })
+  })
+
+  it('spells a named custom entry as the lane, and reverses into the lane', () => {
+    expect(modelValueId(CUSTOM_ENTRY_PROVIDER, CUSTOM_MODEL)).toBe(CUSTOM_MODEL_VALUE)
+    expect(modelValueId('Custom:ACPS-Managed', CUSTOM_MODEL)).toBe(CUSTOM_MODEL_VALUE)
+    expect(parseModelValueId(CUSTOM_MODEL_VALUE)).toEqual({ provider: 'custom', model: CUSTOM_MODEL })
+    expect(modelSwitchParams(SESSION_ID, CUSTOM_MODEL_VALUE, false)).toEqual({
+      key: 'model',
+      value: `${CUSTOM_MODEL} --provider custom`,
+      session_id: SESSION_ID,
+    })
+    expect(canonicalModelValueId(`${CUSTOM_ENTRY_PROVIDER}/${CUSTOM_MODEL}`)).toBe(CUSTOM_MODEL_VALUE)
+    // The lane's own slug is a fixed point, and no other lane is rewritten.
+    expect(modelValueId('custom', CUSTOM_MODEL)).toBe(CUSTOM_MODEL_VALUE)
+    expect(modelValueId('bespoke:endpoint', 'some-model')).toBe('bespoke:endpoint/some-model')
+    expect(canonicalModelValueId(CROSS_PROVIDER_VALUE)).toBe(CROSS_PROVIDER_VALUE)
   })
 
   it('carries no provider flag when the gateway reports no provider', () => {
