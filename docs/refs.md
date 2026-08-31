@@ -28,7 +28,7 @@ The agent we wrap; we build on its `tui_gateway`, not its own ACP adapter.
 - `hermes_cli/subcommands/dashboard.py`, `web_server.py` — `hermes serve`; `/api/ws` token auth, `HERMES_BACKEND_READY` sentinel, `HERMES_PARENT_PID` watchdog.
 - `ui-tui/src/gatewayClient.ts`, `apps/shared` — Hermes' own TypeScript gateway clients; our client's template.
 - `AGENTS.md` (~lines 467-540) — TUI/gateway process model, transport, desktop `hermes serve` fallback behavior.
-- `acp_adapter/` — Hermes' own ACP adapter: behavior reference for tool mapping and auth, and the deviations we must not reproduce.
+- `acp_adapter/` — Hermes' own ACP adapter: behavior reference for tool mapping and auth, and the deviations we must not reproduce (chiefly turn errors masked as prose + clean `end_turn`).
 - `gateway/platforms/api_server.py` — OpenAI-compatible HTTP server; secondary reference only.
 
 ## `codex-acp`

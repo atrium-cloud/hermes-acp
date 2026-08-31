@@ -70,4 +70,4 @@ Flagged against codex-acp/claude-agent-acp in the pre-release review (2026-08-28
 
 ## Exit criteria
 
-Hermes upstream ships an ACP adapter on current schemas with live model switching, correct turn-error reporting, and event-time tool updates. Then archive this repo.
+Hermes upstream ships an ACP adapter on a current schema generation with correct turn-error reporting (failures as protocol errors, never prose + `end_turn`) and gateway-backed sessions. Then archive this repo.
