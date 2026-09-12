@@ -17,6 +17,7 @@
     "drift": "bun scripts/check-hermes-drift.ts",
     "test": "vitest run",
     "test:e2e": "bun run build && RUN_HERMES_E2E=true vitest run --no-file-parallelism src/__tests__/e2e",
+    "test:e2e:sprite": "bun scripts/e2eSprite.ts",
     "release": "bash scripts/release.sh",
     "package": "bun run build && cp dist/index.js dist/hermes-agent-acp && chmod +x dist/hermes-agent-acp && rm -f dist/hermes-agent-acp.zip && zip -j dist/hermes-agent-acp.zip dist/hermes-agent-acp LICENSE NOTICE"
   },

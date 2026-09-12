@@ -61,6 +61,7 @@ Hermes upstream ships an ACP adapter on a current schema generation with correct
 - [x] Fork, head-only (stopgap): first-class `session/fork` via `session.branch` with no `count`; bare `{}` capability, no breakpoint marker. Transcript replay happens via `session/load` on the child.
 - [x] Snapshot test harness modeled on codex-acp's: scripted gateway events in, recorded ACP transcript out.
 - [x] E2E harness (`src/__tests__/e2e/`): drives the BUILT `dist/index.js` as a real ACP client against a scratch `HERMES_HOME`; gated on `RUN_HERMES_E2E=true`, key via child environment only.
+- [x] Sprite e2e automation (`scripts/e2eSprite.ts`, `bun run test:e2e:sprite`): runs the live tier in an ephemeral Fly.io sprite (gated on `sprite` on PATH + `OPENROUTER_API_KEY`), installs the pinned Hermes via uv, saves git-ignored evidence to `e2e-evidence/<ts>-<tag>/` with a scrubbed `output.log` and per-step `summary.json`. Verified green against Hermes 0.20.6 (21/21) on 2026-09-12.
 - [x] No runtime Hermes version gate: like codex-acp and claude-agent-acp, Hermes is an external runtime dependency (0.20.6 and above, docs/refs.md + `bun run drift`), not a check. The two-channel version/contract floor and `HERMES_ACP_SKIP_VERSION_CHECK` were removed 2026-08-29.
 - [x] Distribution: one `hermes-agent-acp.zip` (the `hermes-agent-acp` executable, a hashbang bundle, plus LICENSE and NOTICE) on GitHub Releases, no npm. Needs Node 22+ on PATH and Hermes 0.20.6+.
 - [x] CI (`.github/workflows/ci.yml`): typecheck, unit tests, build, `--version` smoke, `bun run package`.

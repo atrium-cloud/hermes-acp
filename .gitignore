@@ -3,3 +3,6 @@ dist/
 .DS_Store
 *.log
 .claude/
+e2e-evidence/
+.env
+.env.*
