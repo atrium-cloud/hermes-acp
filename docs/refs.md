@@ -6,7 +6,7 @@
 - Schema (latest release): https://github.com/agentclientprotocol/agent-client-protocol/releases/latest/download/schema.json
 - Protocol docs: https://agentclientprotocol.com/protocol
 - TypeScript SDK: `@agentclientprotocol/sdk` (generated types in `node_modules/@agentclientprotocol/sdk/dist/schema/types.gen.d.ts`)
-- `session/fork` is a first-class experimental method in SDK 1.4.0; this adapter implements head-only fork, with no breakpoint marker advertised (docs/todos.md section 4).
+- `session/fork` is a first-class experimental method in SDK 1.4.0; this adapter implements head-only fork, with no breakpoint marker advertised (docs/todos.md section 2).
 
 ## Hermes Agent
 
