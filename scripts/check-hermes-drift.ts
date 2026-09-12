@@ -38,15 +38,24 @@ const CLIENT_PATH = 'src/gateway/HermesGatewayClient.ts'
 const REFS_PATH = 'docs/refs.md'
 
 // Upstream extraction patterns (Python source).
-const METHOD_DECORATOR_PATTERN = /@method\(\s*"([a-z0-9._-]+)"/g
+// Gateway methods register either through the base `method("name")` decorator
+// (server.py) or through a helper that wraps it and funnels to the same
+// `_methods[name] = fn` table: `_session_method` and `_correction_method`
+// (methods_session.py) and `_rpc` (methods_tools.py). All take the method name
+// as their first string argument, so one first-arg capture covers every form;
+// the leading `\b` stops the bare `method` alternative from matching inside
+// longer helper names like `_pet_method`.
+// Residual blind spot: registrars invoked with a variable name rather than a
+// literal — the projects.* family via `_projects_method(name)`, and the
+// `@method(name)` factory sites in methods_session.py — never match. No method
+// this adapter consumes takes that path; if one ever does it surfaces as a
+// false BREAKING (the safe direction) and the fix is to teach the extractor
+// about that registrar. Registrar helpers for families we do not consume (pet,
+// browser control, rooms, profiles, vault) are intentionally omitted.
+const METHOD_REGISTRAR_PATTERN = /@?\b(?:method|_session_method|_correction_method|_rpc)\(\s*"([a-z0-9._-]+)"/g
 // The `_emit(` sites are the gateway event stream; `"type":` literals are NOT
 // collected as events because ws.py control frames (hb, hello, rpc, …) would
 // drown the report.
-// Blind spot: methods registered through a variable (e.g. the projects.*
-// family via `_projects_method(name)` in server.py) never match the literal
-// decorator pattern. None of our consumed methods take that path today; if
-// one ever does, teach the extractor about the registration helper instead
-// of accepting a false BREAKING.
 const EMIT_CALL_PATTERN = /_emit\(\s*"([a-z0-9._-]+)"/g
 // Existence oracle for events that reach the wire without a literal `_emit`
 // call: gateway.ready is a hand-built frame in entry.py/ws.py, and
@@ -129,7 +138,7 @@ export function extractUpstreamSurface(files: ReadonlyMap<string, string>): Upst
   const literals = new Map<string, UpstreamSite[]>()
   for (const [file, source] of files) {
     const lineAt = buildLineLookup(source)
-    collect(methods, file, source, METHOD_DECORATOR_PATTERN, lineAt)
+    collect(methods, file, source, METHOD_REGISTRAR_PATTERN, lineAt)
     collect(emittedEvents, file, source, EMIT_CALL_PATTERN, lineAt)
     collect(literals, file, source, STRING_LITERAL_PATTERN, lineAt)
   }

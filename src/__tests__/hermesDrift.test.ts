@@ -19,6 +19,20 @@ async def _session_create(params):
 async def _prompt_submit(params):
     pass
 
+@_session_method("session.branch", live=True)
+async def _session_branch(rid, params, session):
+    pass
+
+@_rpc("commands.catalog", 5020)
+async def _commands_catalog(rid, params):
+    pass
+
+_correction_method("session.steer", "steer", "queued", lambda agent: hasattr(agent, "steer"), "unsupported")
+
+@_pet_method("pet.hatch")
+async def _pet_hatch(rid, params):
+    pass
+
 def _push(sid):
     _emit("message.delta", sid, {"text": "hi"})
     _emit(
@@ -46,10 +60,23 @@ const upstream = () =>
   )
 
 describe('extractUpstreamSurface', () => {
-  it('collects @method decorators with file:line sites', () => {
+  it('collects the base decorator and the helper registrars, first arg only', () => {
     const surface = upstream()
-    expect([...surface.methods.keys()].sort()).toEqual(['prompt.submit', 'session.create'])
-    expect(surface.methods.get('session.create')).toEqual([{ file: 'tui_gateway/server.py', line: 2 }])
+    // session.steer comes from a bare `_correction_method(...)` call whose 2nd
+    // and 3rd string args ("steer", "queued") must not leak in as methods;
+    // pet.hatch uses an omitted registrar and must stay out.
+    expect([...surface.methods.keys()].sort()).toEqual([
+      'commands.catalog',
+      'prompt.submit',
+      'session.branch',
+      'session.create',
+      'session.steer',
+    ])
+    // Single site at its own line — the decorator registers once, so the
+    // registrar must not double-count. (The `\b` guard itself is what the
+    // pet.hatch exclusion above exercises: `_pet_method` must not match via
+    // its inner `method(` substring.)
+    expect(surface.methods.get('session.branch')).toEqual([{ file: 'tui_gateway/server.py', line: 10 }])
   })
 
   it('collects _emit event names including multi-line calls, but not ws control frames', () => {
