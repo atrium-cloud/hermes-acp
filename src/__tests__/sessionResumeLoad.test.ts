@@ -86,7 +86,9 @@ function scriptStoredTitle(gateway: ScriptedGateway, storedKey: string, title: s
 const HISTORY_ROWS: readonly TranscriptMessage[] = [
   { role: 'user', text: 'hello' },
   { role: 'assistant', reasoning_content: 'thinking it over', text: 'the answer' },
-  // Tool rows carry the call, never the result (`_history_to_messages`).
+  // Tool rows carry the call, never the result (`_history_to_messages`), which
+  // is why a replayed `terminal` row stays plain: a terminal entry with no
+  // output to put in it would render as an empty terminal.
   { role: 'tool', row_id: 42, name: 'terminal', context: 'run ls' },
   { role: 'tool', name: 'read_file', args: { path: '/repo/a.ts', offset: 5 } },
   // A skill-invoked user turn keeps its visible invocation text.

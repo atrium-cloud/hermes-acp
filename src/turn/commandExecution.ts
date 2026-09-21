@@ -62,6 +62,7 @@ export async function runCommand(
     sessionId: session.storedSessionId,
     gatewaySessionId: session.gatewaySessionId,
     clientCapabilities: ctx.clientCapabilities,
+    cwd: session.cwd,
   })
   session.activeTurn = reservation
   // Taken before the reservation can relay a tool event of its own, for the

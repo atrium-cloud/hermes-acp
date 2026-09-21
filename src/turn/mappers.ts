@@ -26,6 +26,12 @@ import {
   HISTORY_REPLAY_TOOL_CALL_PREFIX,
   SESSION_TITLE_MAX_CHARS,
   SKILL_INVOCATION_DISPLAY_KIND,
+  TERMINAL_RESULT_ERROR_KEY,
+  TERMINAL_RESULT_EXIT_CODE_KEY,
+  TERMINAL_RESULT_NOTE_KEY,
+  TERMINAL_RESULT_OUTPUT_KEY,
+  TERMINAL_TOOL_NAME,
+  TERMINAL_WORKDIR_ARG_KEY,
   TOOL_LOCATION_LINE_KEYS,
   TOOL_LOCATION_PATH_KEY,
 } from '../constants.js'
@@ -167,7 +173,7 @@ function toolCallDetails(args: Record<string, unknown> | undefined): Pick<ToolCa
 
 type ToolCallStartFields = Extract<SessionUpdate, { sessionUpdate: 'tool_call' }>
 
-export function toolCallStart(payload: ToolStartEvent['payload']): SessionUpdate {
+export function toolCallStart(payload: ToolStartEvent['payload'], sessionCwd: string): SessionUpdate {
   return {
     sessionUpdate: 'tool_call',
     toolCallId: payload.tool_id,
@@ -176,6 +182,100 @@ export function toolCallStart(payload: ToolStartEvent['payload']): SessionUpdate
     kind: toolKindForName(payload.name),
     status: 'in_progress',
     ...toolCallDetails(payload.args),
+    ...(payload.name === TERMINAL_TOOL_NAME
+      ? { content: terminalContent(payload.tool_id), _meta: terminalInfoMeta(payload.tool_id, payload.args, sessionCwd) }
+      : {}),
+  }
+}
+
+// ── Terminal entries ────────────────────────────────────────────────────────
+//
+// A `terminal` call is announced as a terminal the client renders itself: a
+// `terminal` content item plus the `_meta` keys carrying the terminal's cwd,
+// its output, and its exit. See the constants block for why `_meta` rather
+// than the `terminal/*` client methods.
+
+/**
+ * Where the command ran. Hermes' terminal tool takes an optional `workdir` and
+ * otherwise runs in the session's directory, which the gateway never reports
+ * per call, so the ACP session cwd is the honest fallback.
+ */
+function terminalCwd(args: Record<string, unknown> | undefined, sessionCwd: string): string {
+  const workdir = args?.[TERMINAL_WORKDIR_ARG_KEY]
+  return typeof workdir === 'string' && workdir !== '' ? workdir : sessionCwd
+}
+
+function terminalContent(toolId: string): ToolCallContent[] {
+  return [{ type: 'terminal', terminalId: toolId }]
+}
+
+function terminalInfoMeta(
+  toolId: string,
+  args: Record<string, unknown> | undefined,
+  sessionCwd: string,
+): Record<string, unknown> {
+  return { terminal_info: { terminal_id: toolId, cwd: terminalCwd(args, sessionCwd) } }
+}
+
+/**
+ * Output and exit of a finished `terminal` call, read from the result JSON the
+ * gateway already decoded (`tools/terminal_tool_result.py`).
+ *
+ * `exit_code` is absent or null when the command yielded to background, and the
+ * whole object is missing when the result did not decode; either way no
+ * `terminal_exit` is sent, since an invented code would claim an outcome Hermes
+ * never reported. The row's own status still comes from `toolResultFailed`,
+ * which reads the same `exit_code`.
+ *
+ * The row carries no text content of its own, so whatever explains the outcome
+ * has to ride the terminal data or be visible nowhere: the failure envelope
+ * (`_error_json`: timeout, executor crash, denied command) puts its explanation
+ * in `error` next to an empty `output`, a background yield puts its "still
+ * running" notice in `note`, and an undecoded result is the executor's
+ * exception wrapper as raw text.
+ */
+function terminalResultMeta(payload: ToolCompleteEvent['payload']): Record<string, unknown> {
+  const result = payload.result
+  const fields =
+    typeof result === 'object' && result !== null && !Array.isArray(result) ? (result as Record<string, unknown>) : undefined
+  const exitCode = fields?.[TERMINAL_RESULT_EXIT_CODE_KEY]
+  return {
+    terminal_output: { terminal_id: payload.tool_id, data: terminalData(fields, result, payload.result_text) },
+    ...(typeof exitCode === 'number' && Number.isInteger(exitCode)
+      ? { terminal_exit: { terminal_id: payload.tool_id, exit_code: exitCode, signal: null } }
+      : {}),
+  }
+}
+
+function terminalData(fields: Record<string, unknown> | undefined, result: unknown, resultText: string | undefined): string {
+  const stringOf = (value: unknown): string => (typeof value === 'string' ? value : '')
+  const reported = [stringOf(fields?.[TERMINAL_RESULT_OUTPUT_KEY]), stringOf(fields?.[TERMINAL_RESULT_NOTE_KEY])]
+    .filter((text) => text !== '')
+    .join('\n')
+  if (reported !== '') {
+    return reported
+  }
+  const error = stringOf(fields?.[TERMINAL_RESULT_ERROR_KEY])
+  if (error !== '') {
+    return error
+  }
+  return typeof result === 'string' ? result : (resultText ?? '')
+}
+
+/**
+ * The finished call's fields for a `terminal` call: no text `content`, because
+ * the terminal item from the opening `tool_call` is what renders the output,
+ * and an `inline_diff` can never apply to a shell command.
+ */
+function terminalOutcome(
+  payload: ToolCompleteEvent['payload'],
+): Pick<ToolCallStartFields, 'status' | 'rawOutput' | '_meta'> {
+  const status: ToolCallStatus = toolResultFailed(payload) ? 'failed' : 'completed'
+  const rawOutput = payload.result ?? payload.result_text
+  return {
+    status,
+    ...(rawOutput !== undefined ? { rawOutput } : {}),
+    _meta: terminalResultMeta(payload),
   }
 }
 
@@ -247,7 +347,11 @@ function toolCallOutcome(payload: ToolCompleteEvent['payload']): Pick<ToolCallSt
 }
 
 export function toolCallComplete(payload: ToolCompleteEvent['payload']): SessionUpdate {
-  return { sessionUpdate: 'tool_call_update', toolCallId: payload.tool_id, ...toolCallOutcome(payload) }
+  return {
+    sessionUpdate: 'tool_call_update',
+    toolCallId: payload.tool_id,
+    ...(payload.name === TERMINAL_TOOL_NAME ? terminalOutcome(payload) : toolCallOutcome(payload)),
+  }
 }
 
 /**
@@ -256,15 +360,26 @@ export function toolCallComplete(payload: ToolCompleteEvent['payload']): Session
  * diff (server.py `_tool_lifecycle_required_for_ui` vs the `inline_diff` gate),
  * so with progress off this is the only frame a file edit produces.
  */
-export function toolCallFromComplete(payload: ToolCompleteEvent['payload']): SessionUpdate {
-  return {
+export function toolCallFromComplete(payload: ToolCompleteEvent['payload'], sessionCwd: string): SessionUpdate {
+  const base = {
     sessionUpdate: 'tool_call',
     toolCallId: payload.tool_id,
     title: payload.name,
     name: payload.name,
     kind: toolKindForName(payload.name),
     ...toolCallDetails(payload.args),
-    ...toolCallOutcome(payload),
+  } as const
+  if (payload.name !== TERMINAL_TOOL_NAME) {
+    return { ...base, ...toolCallOutcome(payload) }
+  }
+  // The only frame this row gets, so it carries the terminal's announcement as
+  // well as its outcome; both `_meta` halves have to ride the same object.
+  const outcome = terminalOutcome(payload)
+  return {
+    ...base,
+    content: terminalContent(payload.tool_id),
+    ...outcome,
+    _meta: { ...terminalInfoMeta(payload.tool_id, payload.args, sessionCwd), ...outcome._meta },
   }
 }
 

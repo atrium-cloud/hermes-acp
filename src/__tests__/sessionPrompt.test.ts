@@ -354,7 +354,11 @@ describe('session/prompt', () => {
           payload: { tool_id: 'edit-1', name: 'patch', args: { path: '/repo/a.ts' }, summary: 'patched', inline_diff: '- a\n+ b' },
         },
         { type: 'tool.start', session_id: SESSION_ID, payload: { tool_id: 'call-1', name: 'terminal', context: '$ ls' } },
-        { type: 'tool.complete', session_id: SESSION_ID, payload: { tool_id: 'call-1', name: 'terminal', summary: 'ok' } },
+        {
+          type: 'tool.complete',
+          session_id: SESSION_ID,
+          payload: { tool_id: 'call-1', name: 'terminal', summary: 'ok', result: { output: 'a.ts\n', exit_code: 0 } },
+        },
         { type: 'message.complete', session_id: SESSION_ID, payload: { status: 'complete' } },
       ])
 
@@ -379,12 +383,27 @@ describe('session/prompt', () => {
             { type: 'content', content: { type: 'text', text: '- a\n+ b' } },
           ],
         },
-        { sessionUpdate: 'tool_call', toolCallId: 'call-1', title: '$ ls', name: 'terminal', kind: 'execute', status: 'in_progress' },
+        // A terminal call renders as a terminal entry: the content item plus the
+        // `_meta` side channel, and no text content of its own.
+        {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'call-1',
+          title: '$ ls',
+          name: 'terminal',
+          kind: 'execute',
+          status: 'in_progress',
+          content: [{ type: 'terminal', terminalId: 'call-1' }],
+          _meta: { terminal_info: { terminal_id: 'call-1', cwd: TEST_CWD } },
+        },
         {
           sessionUpdate: 'tool_call_update',
           toolCallId: 'call-1',
           status: 'completed',
-          content: [{ type: 'content', content: { type: 'text', text: 'ok' } }],
+          rawOutput: { output: 'a.ts\n', exit_code: 0 },
+          _meta: {
+            terminal_output: { terminal_id: 'call-1', data: 'a.ts\n' },
+            terminal_exit: { terminal_id: 'call-1', exit_code: 0, signal: null },
+          },
         },
       ])
     } finally {

@@ -624,6 +624,7 @@ export class HermesAcpServer {
       sessionId: session.storedSessionId,
       gatewaySessionId: session.gatewaySessionId,
       clientCapabilities: this.clientCapabilities,
+      cwd: session.cwd,
     })
     session.activeTurn = turn
 

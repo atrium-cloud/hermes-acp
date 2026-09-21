@@ -89,6 +89,29 @@ export const SESSION_TITLE_MAX_CHARS = 256
 export const TOOL_LOCATION_PATH_KEY = 'path'
 export const TOOL_LOCATION_LINE_KEYS = ['offset', 'line'] as const
 
+// ── Terminal entries ────────────────────────────────────────────────────────
+//
+// The `terminal` tool renders as an ACP terminal entry over the Zed `_meta`
+// side channel (`terminal_info` / `terminal_output` / `terminal_exit`, keyed by
+// a terminal id equal to the tool call id), not through the `terminal/*` client
+// methods: those hand execution to the client, while Hermes runs the command
+// in-process and only reports it afterwards. Emitted unconditionally, because
+// the command's output otherwise reaches the client only in verbose
+// tool-progress mode (`tui_gateway/tool_progress.py` `_on_tool_complete`
+// attaches `result_text`), even though the gateway always carries it in
+// `payload.result`. `process` (background processes) is deliberately excluded:
+// its result is a different shape and stays on the plain `execute` rendering.
+
+export const TERMINAL_TOOL_NAME = 'terminal'
+export const TERMINAL_WORKDIR_ARG_KEY = 'workdir'
+export const TERMINAL_RESULT_OUTPUT_KEY = 'output'
+export const TERMINAL_RESULT_EXIT_CODE_KEY = 'exit_code'
+// The failure envelope (`tools/terminal_tool.py` `_error_json`: timeout, executor
+// crash, denied command) carries empty `output` and its explanation here.
+export const TERMINAL_RESULT_ERROR_KEY = 'error'
+// A command yielded to background carries its "still running" notice here.
+export const TERMINAL_RESULT_NOTE_KEY = 'note'
+
 // ── Managed serve mode details ──────────────────────────────────────────────
 //
 // `hermes serve` binds loopback with `--port 0` so the OS assigns a free port;
