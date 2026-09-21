@@ -3,8 +3,8 @@
  *
  * Hand-written from the Hermes source (tui_gateway/server.py,
  * methods_prompt.py, methods_session.py, methods_config.py,
- * methods_complete.py, methods_tools.py) and pinned to Hermes 0.20.6
- * (tag v2026.8.27; see docs/refs.md). There is no codegen: this file is the
+ * methods_complete.py, methods_tools.py) and pinned to Hermes 0.21.3
+ * (tag v2026.9.14; see docs/refs.md). There is no codegen: this file is the
  * compile-time tripwire — every Hermes bump must re-verify these shapes
  * against upstream (docs/todos.md "Known limits").
  *
@@ -36,7 +36,7 @@ export interface SessionInfo {
    * place a Hermes version is reported at all. */
   readonly version: string
   readonly release_date: string
-  /** `DESKTOP_BACKEND_CONTRACT` (6 on the reference build, server.py 5631):
+  /** `DESKTOP_BACKEND_CONTRACT` (7 on the reference build, server.py 2025):
    * the capability count Hermes' own desktop client gates on. Unlike
    * `version` it rides the lazy skeleton too. Typed because it is on the
    * wire; this adapter reads neither field (docs/refs.md). */
@@ -236,38 +236,19 @@ export interface ToolCompleteEvent {
   }
 }
 
-export interface ApprovalRequestEvent {
-  readonly type: 'approval.request'
+/**
+ * `request.cancel` (tui_gateway/server_requests.py `_emit_cancel`): the
+ * gateway withdrew a server→client request — its wait timed out, the turn was
+ * interrupted, or the session closed. `id` is the withdrawn request's JSON-RPC
+ * id; a response sent after this is dropped upstream.
+ */
+export interface RequestCancelEvent {
+  readonly type: 'request.cancel'
   readonly session_id?: string
   readonly payload: {
-    readonly request_id: string
-    readonly command: string
-    readonly description: string
-    readonly choices?: readonly string[]
-    readonly allow_permanent?: boolean
-    readonly smart_denied?: boolean
-    readonly pattern_keys?: readonly string[]
-  }
-}
-
-export interface ClarifyQuestion {
-  readonly qid: string
-  readonly question: string
-  readonly choices?: readonly string[] | null
-  readonly multi_select?: boolean
-}
-
-export interface ClarifyRequestEvent {
-  readonly type: 'clarify.request'
-  readonly session_id?: string
-  readonly payload: {
-    readonly request_id: string
-    readonly question?: string
-    readonly choices?: readonly string[] | null
-    /** Single-question form only; emitted only when true (server.py ~4650). */
-    readonly multi_select?: boolean
-    readonly questions?: readonly ClarifyQuestion[]
-    readonly answers?: Record<string, string>
+    readonly id: string
+    readonly method: string
+    readonly reason: string
   }
 }
 
@@ -303,8 +284,7 @@ export type GatewayEvent =
   | ReasoningDeltaEvent
   | ToolStartEvent
   | ToolCompleteEvent
-  | ApprovalRequestEvent
-  | ClarifyRequestEvent
+  | RequestCancelEvent
   | GatewayErrorEvent
 
 // Completeness-checked registry of the event types above: a missing or
@@ -323,8 +303,7 @@ const KNOWN_EVENT_TYPES: Record<GatewayEvent['type'], true> = {
   'reasoning.delta': true,
   'tool.start': true,
   'tool.complete': true,
-  'approval.request': true,
-  'clarify.request': true,
+  'request.cancel': true,
   error: true,
 }
 
@@ -332,6 +311,85 @@ export function isKnownGatewayEventType(type: string): type is GatewayEvent['typ
   // Own-property check: `in` would also admit Object.prototype keys
   // ("toString", "constructor", …) into the typed event surface.
   return Object.hasOwn(KNOWN_EVENT_TYPES, type)
+}
+
+// ── Server→client requests ──────────────────────────────────────────────────
+//
+// The gateway's half of JSON-RPC (tui_gateway/server_requests.py): a frame
+// `{id: "srq-…", method, params: {session_id, …}}` that blocks a tool until
+// the client writes a response frame with the same id. The ids are strings,
+// disjoint from the integer ids this client mints. Contracts:
+// tui_gateway/contracts/server_requests.py.
+
+export interface ApprovalServerRequest {
+  readonly id: string
+  readonly method: 'approval'
+  readonly params: {
+    readonly session_id: string
+    /** The approval queue entry (tools/approval.py); distinct from `id`. */
+    readonly request_id: string
+    readonly command: string
+    readonly description: string
+    readonly choices?: readonly string[]
+    readonly allow_permanent?: boolean
+    /** Both already folded into `choices` by `_approval_request_payload`
+     * (server.py); typed because they are on the wire, unread. */
+    readonly allow_session?: boolean
+    readonly smart_denied?: boolean
+    /** The gated tool, when the gate knows it. Typed because it is on the
+     * wire; correlation still uses the in-flight tool call (docs/caveats.md). */
+    readonly tool_name?: string
+  }
+}
+
+/** Response to an `approval` request: `choice` is relayed verbatim to
+ * `resolve_gateway_approval`; `all` would apply it to every queued approval. */
+export interface ApprovalResult {
+  readonly choice: string
+  readonly all?: boolean
+}
+
+export interface ClarifyQuestion {
+  readonly qid: string
+  readonly question: string
+  readonly choices?: readonly string[] | null
+  readonly multi_select?: boolean
+}
+
+export interface ClarifyServerRequest {
+  readonly id: string
+  readonly method: 'clarify'
+  readonly params: {
+    readonly session_id: string
+    readonly question?: string
+    readonly choices?: readonly string[] | null
+    /** Single-question form only; sent only when true (server.py `_clarify_block`). */
+    readonly multi_select?: boolean
+    readonly questions?: readonly ClarifyQuestion[]
+    /** Batch answers already locked before a reconnect (the `open_requests` snapshot). */
+    readonly answers?: Record<string, string>
+  }
+}
+
+/** Response to a single-question `clarify` request; `""` means skip. Batch
+ * questions are answered through `clarify.lock` instead (ClarifyLockParams). */
+export interface ClarifyResult {
+  readonly answer: string
+}
+
+export type GatewayServerRequest = ApprovalServerRequest | ClarifyServerRequest
+
+// Completeness-checked registry of the server request methods above, the
+// server-request twin of KNOWN_EVENT_TYPES: an unknown method is answered with
+// a JSON-RPC method-not-found error so the blocked tool fails at once instead
+// of waiting out its timeout.
+const KNOWN_SERVER_REQUEST_METHODS: Record<GatewayServerRequest['method'], true> = {
+  approval: true,
+  clarify: true,
+}
+
+export function isKnownServerRequestMethod(method: string): method is GatewayServerRequest['method'] {
+  return Object.hasOwn(KNOWN_SERVER_REQUEST_METHODS, method)
 }
 
 // ── Method params and results ───────────────────────────────────────────────
@@ -514,6 +572,16 @@ export interface SessionResumeResult {
   readonly message_count?: number
   readonly messages: readonly TranscriptMessage[]
   readonly info?: LazySessionInfo
+  /** Server→client requests still unanswered on this session (server.py
+   * `_open_requests`), for a client that detached while one was open — any
+   * method the gateway asks, not only the ones this adapter answers. Typed
+   * because it is on the wire; this adapter installs no turn on resume, so it
+   * does not re-deliver them (docs/caveats.md). */
+  readonly open_requests?: readonly {
+    readonly id: string
+    readonly method: string
+    readonly params: { readonly session_id: string }
+  }[]
 }
 
 export interface SessionHistoryResult {
@@ -529,28 +597,16 @@ export interface SessionDeleteResult {
   readonly deleted?: string
 }
 
-export interface ApprovalRespondParams {
-  readonly session_id: string
-  readonly choice: string
-  readonly request_id?: string
-  readonly all?: boolean
-}
-
-export interface ApprovalRespondResult {
-  readonly resolved?: number
-}
-
-export interface ClarifyRespondParams {
+/** `clarify.lock` (methods_prompt.py): lock one batch answer by qid on the
+ * open `clarify` server request; the last lock resolves the request itself. */
+export interface ClarifyLockParams {
+  /** The `clarify` server request's JSON-RPC id. */
   readonly request_id: string
-  /** Single-question clarify answer. */
-  readonly answer?: string
-  /** Batch clarify: lock one question's answer by qid. */
-  readonly question_id?: string
+  readonly question_id: string
+  readonly answer: string
 }
 
-/** Shared result of the `*.respond` prompt methods (clarify.respond, …),
- * all served by tui_gateway's `_respond`. */
-export interface PromptRespondResult {
+export interface ClarifyLockResult {
   readonly status: 'ok' | 'expired'
   readonly remaining?: readonly string[]
 }

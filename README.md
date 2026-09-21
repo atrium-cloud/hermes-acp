@@ -5,7 +5,7 @@
 ## Requirements
 
 - Node 22 or newer.
-- Hermes Agent 0.20.6 or above, configured with a model provider, resolved as `hermes` on PATH or named by `HERMES_ACP_HERMES_BIN`.
+- Hermes Agent 0.21.3 or above, configured with a model provider, resolved as `hermes` on PATH or named by `HERMES_ACP_HERMES_BIN`.
 
 The release is a single executable, `hermes-agent-acp`; put it on PATH or point your ACP client at it. On Windows run it as `node hermes-agent-acp`.
 

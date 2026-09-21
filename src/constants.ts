@@ -131,7 +131,7 @@ export const KILL_GRACE_MS = 2_000
 
 // ── Approvals ───────────────────────────────────────────────────────────────
 //
-// Choice strings `approval.respond` forwards verbatim to
+// Choice strings the `approval` server request's response forwards verbatim to
 // `tools/approval.py resolve_gateway_approval`. Only "deny" blocks the action:
 // upstream approves on every other resolved choice
 // (`if not resolved or choice is None or choice == "deny"`), which is why an

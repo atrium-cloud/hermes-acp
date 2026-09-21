@@ -24,8 +24,13 @@ Known limitations of the ACP surface, all rooted in the gateway assuming a Herme
 
 ## Unsupported gateway round-trips
 
-- Cause: tools block on frontend-only bridges — `terminal.read`, `preview.read`/`act`, `window.read`, `tour`, `mcp.setup`, `sudo`, `secret` — none with an ACP counterpart.
-- Behavior: the adapter never fabricates an answer; the bounded wait expires (worst case 600s for `mcp.setup`), the tool fails, the turn continues.
+- Cause: tools block on frontend-only server requests — `terminal.read`, `preview.read`/`act`, `window.read`, `tour`, `mcp.setup`, `sudo`, `secret`, the vault prompts — none with an ACP counterpart.
+- Behavior: the adapter never fabricates an answer; the request is refused with JSON-RPC method-not-found, which upstream reads as unanswered, so the tool fails at once and the turn continues.
+
+## Open requests are not re-delivered on resume
+
+- Cause: `session.resume` returns the session's unanswered server requests as `open_requests`, but this adapter installs no turn on resume, so there is no prompt to attach them to.
+- Behavior: an approval or clarify left open by a previous client stays parked until Hermes' own timeout withdraws it; the next `session/prompt` on this side sees any request issued after it.
 
 ## Clarify needs a client that supports form elicitation
 
@@ -34,7 +39,7 @@ Known limitations of the ACP surface, all rooted in the gateway assuming a Herme
 
 ## Approvals correlate to the most recent tool call, not to a tool id
 
-- Cause: `approval.request` carries no tool id, and two gated tools in one concurrent batch can anchor prompts to each other's row.
+- Cause: the `approval` request carries no tool id, and two gated tools in one concurrent batch can anchor prompts to each other's row.
 - Behavior: prompt content always comes from the approval payload, so only the row anchoring can be wrong, never the action presented.
 
 ## session/list only sees this adapter's sessions, and only with a known cwd

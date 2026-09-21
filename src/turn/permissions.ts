@@ -1,19 +1,21 @@
 /**
- * Pure builders for the two client round-trips a Hermes turn can demand:
- * `approval.request` → ACP `session/request_permission`, and `clarify.request`
- * → ACP elicitation.
+ * Pure builders for the two client round-trips a Hermes turn can demand: the
+ * `approval` server request → ACP `session/request_permission`, and the
+ * `clarify` server request → ACP elicitation.
  *
  * Everything here is a total function of its input, like `mappers.ts`. The
- * round-trip state — which request ids are still unanswered, which tool call an
+ * round-trip state — which requests are still unanswered, which tool call an
  * approval belongs to, whether the turn ended first — lives on TurnHandler.
  *
- * Wire semantics both mappings are pinned to (Hermes 0.20.6, see docs/refs.md):
- *   - `approval.respond` relays `choice` verbatim to `resolve_gateway_approval`
- *     (tools/approval.py), and the approval gate blocks only on the literal
- *     "deny": every other resolved choice approves the action. An option whose
- *     choice string this adapter does not recognize is therefore dropped rather
- *     than offered — relaying it back would read as consent.
- *   - `clarify.respond` takes one free-text `answer` per question, so every
+ * Wire semantics both mappings are pinned to (Hermes 0.21.3, see docs/refs.md):
+ *   - the `approval` response's `choice` is relayed verbatim to
+ *     `resolve_gateway_approval` (tools/approval.py), and the approval gate
+ *     blocks only on the literal "deny": every other resolved choice approves
+ *     the action. An option whose choice string this adapter does not recognize
+ *     is therefore dropped rather than offered — relaying it back would read as
+ *     consent.
+ *   - `clarify` takes one free-text `answer` per question (the response for a
+ *     single question, `clarify.lock` per question of a batch), so every
  *     question maps to a one-field elicitation form.
  */
 
@@ -35,7 +37,10 @@ import {
   CLARIFY_ANSWER_FIELD,
   DEFAULT_APPROVAL_CHOICES,
 } from '../constants.js'
-import type { ApprovalRequestEvent } from '../gateway/types.js'
+import type { ApprovalServerRequest } from '../gateway/types.js'
+
+/** The `approval` request's params, minus the routing field. */
+export type ApprovalPrompt = ApprovalServerRequest['params']
 
 // ── Client capability probes ────────────────────────────────────────────────
 
@@ -70,9 +75,9 @@ export interface ApprovalOptions {
  * Build the ACP permission options for a gateway approval.
  *
  * The option ids are the gateway choice strings themselves, so the selected
- * option needs no translation table on the way back to `approval.respond`.
+ * option needs no translation table on the way back into the response.
  */
-export function approvalOptions(payload: ApprovalRequestEvent['payload']): ApprovalOptions {
+export function approvalOptions(payload: ApprovalPrompt): ApprovalOptions {
   const offered = payload.choices !== undefined && payload.choices.length > 0 ? payload.choices : DEFAULT_APPROVAL_CHOICES
 
   const options: PermissionOption[] = []
@@ -107,7 +112,7 @@ export function approvalGateToolCallId(requestId: string): string {
  * the client never saw start is exactly the dangling-id defect this adapter
  * exists to fix.
  */
-export function approvalGateToolCall(payload: ApprovalRequestEvent['payload'], toolCallId: string): SessionUpdate {
+export function approvalGateToolCall(payload: ApprovalPrompt, toolCallId: string): SessionUpdate {
   return {
     sessionUpdate: 'tool_call',
     toolCallId,
@@ -167,8 +172,8 @@ function clarifyProperty(request: ClarifyFormRequest): ElicitationPropertySchema
 }
 
 /**
- * The answer string `clarify.respond` takes, or null when the client accepted
- * the form without filling the field in.
+ * The answer string a `clarify` response (or `clarify.lock`) takes, or null
+ * when the client accepted the form without filling the field in.
  *
  * A multi-select answer is serialized as a JSON array: Hermes' parser
  * (`tools/clarify_tool.py _parse_multi_select_response`) tries JSON before

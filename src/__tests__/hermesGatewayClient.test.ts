@@ -93,19 +93,12 @@ describe('HermesGatewayClient typed wrappers', () => {
     await expect(hermes.sessionDelete('s1')).resolves.toEqual({ deleted: 's1' })
     expect(request).toHaveBeenLastCalledWith('session.delete', { session_id: 's1' })
 
-    request.mockResolvedValue({ resolved: 1 })
-    await expect(hermes.approvalRespond({ session_id: 's1', choice: 'once', request_id: 'r1' })).resolves.toEqual({
-      resolved: 1,
+    request.mockResolvedValue({ status: 'ok', remaining: [] })
+    await expect(hermes.clarifyLock({ request_id: 'srq-1', question_id: 'q1', answer: 'yes' })).resolves.toEqual({
+      status: 'ok',
+      remaining: [],
     })
-    expect(request).toHaveBeenLastCalledWith('approval.respond', {
-      session_id: 's1',
-      choice: 'once',
-      request_id: 'r1',
-    })
-
-    request.mockResolvedValue({ status: 'ok' })
-    await expect(hermes.clarifyRespond({ request_id: 'r1', answer: 'yes' })).resolves.toEqual({ status: 'ok' })
-    expect(request).toHaveBeenLastCalledWith('clarify.respond', { request_id: 'r1', answer: 'yes' })
+    expect(request).toHaveBeenLastCalledWith('clarify.lock', { request_id: 'srq-1', question_id: 'q1', answer: 'yes' })
 
     request.mockResolvedValue({ providers: [] })
     await expect(hermes.modelOptions({ refresh: true })).resolves.toEqual({ providers: [] })
@@ -159,13 +152,27 @@ describe('HermesGatewayClient typed wrappers', () => {
     await expect(hermes.sessionCreate({})).rejects.toThrow('gateway not connected')
   })
 
-  it('forwards event subscriptions to the underlying transport', () => {
+  it('forwards event and server request subscriptions to the underlying transport', () => {
     const gateway = new GatewayClient()
     const onEvent = vi.spyOn(gateway, 'onEvent')
+    const onServerRequest = vi.spyOn(gateway, 'onServerRequest')
     const hermes = new HermesGatewayClient(gateway)
 
     const handler = (): void => {}
     hermes.onEvent(handler)
     expect(onEvent).toHaveBeenCalledWith(handler)
+    hermes.onServerRequest(handler)
+    expect(onServerRequest).toHaveBeenCalledWith(handler)
+  })
+
+  it('answers server requests as response frames on the request id', () => {
+    const gateway = new GatewayClient()
+    const respond = vi.spyOn(gateway, 'respond').mockImplementation(() => undefined)
+    const hermes = new HermesGatewayClient(gateway)
+
+    hermes.answerApproval('srq-1', { choice: 'once' })
+    expect(respond).toHaveBeenLastCalledWith('srq-1', { choice: 'once' })
+    hermes.answerClarify('srq-2', { answer: 'postgres' })
+    expect(respond).toHaveBeenLastCalledWith('srq-2', { answer: 'postgres' })
   })
 })
