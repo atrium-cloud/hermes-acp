@@ -80,6 +80,9 @@ export interface TurnHandlerOptions {
   /** What the client advertised at `initialize`, or null if it advertised
    * nothing. Elicitation is only used against a client that supports it. */
   readonly clientCapabilities: ClientCapabilities | null
+  /** The session's working directory, reported as a terminal entry's cwd when
+   * a `terminal` call names no `workdir` of its own. */
+  readonly cwd: string
 }
 
 export class TurnHandler {
@@ -88,6 +91,7 @@ export class TurnHandler {
   private readonly sessionId: string
   private readonly gatewaySessionId: string
   private readonly clientCapabilities: ClientCapabilities | null
+  private readonly cwd: string
   /** The sender's failure count when this turn started. */
   private readonly failureMark: number
 
@@ -148,6 +152,7 @@ export class TurnHandler {
     this.sessionId = options.sessionId
     this.gatewaySessionId = options.gatewaySessionId
     this.clientCapabilities = options.clientCapabilities
+    this.cwd = options.cwd
     this.failureMark = options.updates.failureCount()
     this.completion = new Promise<TurnResult>((resolve) => {
       this.resolveCompletion = resolve
@@ -271,7 +276,7 @@ export class TurnHandler {
         if (!this.startedToolCallIds.has(event.payload.tool_id)) {
           this.startedToolCallIds.add(event.payload.tool_id)
           this.inFlightToolCalls.push({ toolCallId: event.payload.tool_id, name: event.payload.name })
-          this.send(toolCallStart(event.payload))
+          this.send(toolCallStart(event.payload, this.cwd))
         }
         return
       }
@@ -285,7 +290,7 @@ export class TurnHandler {
           this.send(toolCallComplete(event.payload))
         } else {
           this.startedToolCallIds.add(event.payload.tool_id)
-          this.send(toolCallFromComplete(event.payload))
+          this.send(toolCallFromComplete(event.payload, this.cwd))
         }
         this.sendPlanIfChanged(event.payload.todos)
         return

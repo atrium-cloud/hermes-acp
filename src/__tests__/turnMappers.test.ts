@@ -20,9 +20,12 @@ import {
 } from '../turn/mappers.js'
 
 const TOOL_ID = 'call-1'
+const SESSION_CWD = '/repo'
 
+// `patch` rather than `terminal`: a terminal call maps through the terminal-entry
+// path, which is exercised by its own cases below.
 function completePayload(overrides: Partial<ToolCompleteEvent['payload']> = {}): ToolCompleteEvent['payload'] {
-  return { tool_id: TOOL_ID, name: 'terminal', ...overrides }
+  return { tool_id: TOOL_ID, name: 'patch', ...overrides }
 }
 
 function usage(overrides: Partial<Usage> = {}): Usage {
@@ -64,7 +67,7 @@ describe('toolCallStart', () => {
   })
 
   it('opens the call as in_progress', () => {
-    expect(toolCallStart({ tool_id: TOOL_ID, name: 'patch', context: 'patch src/a.ts' })).toEqual({
+    expect(toolCallStart({ tool_id: TOOL_ID, name: 'patch', context: 'patch src/a.ts' }, SESSION_CWD)).toEqual({
       sessionUpdate: 'tool_call',
       toolCallId: TOOL_ID,
       title: 'patch src/a.ts',
@@ -76,9 +79,28 @@ describe('toolCallStart', () => {
 
   it('carries the call arguments as rawInput and the file they name as a location', () => {
     const args = { path: '/repo/src/a.ts', offset: 12, limit: 40 }
-    expect(toolCallStart({ tool_id: TOOL_ID, name: 'read_file', args })).toMatchObject({
+    expect(toolCallStart({ tool_id: TOOL_ID, name: 'read_file', args }, SESSION_CWD)).toMatchObject({
       rawInput: args,
       locations: [{ path: '/repo/src/a.ts', line: 12 }],
+    })
+  })
+
+  it('opens a terminal call as a terminal entry rooted at its workdir, else the session cwd', () => {
+    expect(toolCallStart({ tool_id: TOOL_ID, name: 'terminal', context: '$ ls', args: { command: 'ls' } }, SESSION_CWD)).toEqual({
+      sessionUpdate: 'tool_call',
+      toolCallId: TOOL_ID,
+      title: '$ ls',
+      name: 'terminal',
+      kind: 'execute',
+      status: 'in_progress',
+      rawInput: { command: 'ls' },
+      content: [{ type: 'terminal', terminalId: TOOL_ID }],
+      _meta: { terminal_info: { terminal_id: TOOL_ID, cwd: SESSION_CWD } },
+    })
+    expect(
+      toolCallStart({ tool_id: TOOL_ID, name: 'terminal', args: { command: 'ls', workdir: '/repo/src' } }, SESSION_CWD),
+    ).toMatchObject({
+      _meta: { terminal_info: { terminal_id: TOOL_ID, cwd: '/repo/src' } },
     })
   })
 })
@@ -160,7 +182,10 @@ describe('toolCallComplete', () => {
 
   it('builds a whole tool_call from a completion with no start', () => {
     expect(
-      toolCallFromComplete(completePayload({ name: 'patch', args: { path: '/a.ts' }, summary: 'patched', result: { exit_code: 1 } })),
+      toolCallFromComplete(
+        completePayload({ name: 'patch', args: { path: '/a.ts' }, summary: 'patched', result: { exit_code: 1 } }),
+        SESSION_CWD,
+      ),
     ).toEqual({
       sessionUpdate: 'tool_call',
       toolCallId: TOOL_ID,
@@ -178,6 +203,80 @@ describe('toolCallComplete', () => {
   it('reports a failed status for a failed result', () => {
     expect(toolCallComplete(completePayload({ result: { exit_code: 127 }, summary: 'command not found' }))).toMatchObject({
       status: 'failed',
+    })
+  })
+
+  it('maps a terminal completion onto the terminal _meta keys with no text content', () => {
+    expect(
+      toolCallComplete(
+        completePayload({ name: 'terminal', summary: 'ok', result: { output: 'a.ts\nb.ts\n', exit_code: 0 } }),
+      ),
+    ).toEqual({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: TOOL_ID,
+      status: 'completed',
+      rawOutput: { output: 'a.ts\nb.ts\n', exit_code: 0 },
+      _meta: {
+        terminal_output: { terminal_id: TOOL_ID, data: 'a.ts\nb.ts\n' },
+        terminal_exit: { terminal_id: TOOL_ID, exit_code: 0, signal: null },
+      },
+    })
+    // The failure envelope: empty output, the explanation in `error`.
+    expect(
+      toolCallComplete(
+        completePayload({ name: 'terminal', result: { output: '', exit_code: 124, error: 'Command timed out after 30 seconds' } }),
+      ),
+    ).toMatchObject({
+      status: 'failed',
+      _meta: {
+        terminal_output: { terminal_id: TOOL_ID, data: 'Command timed out after 30 seconds' },
+        terminal_exit: { terminal_id: TOOL_ID, exit_code: 124, signal: null },
+      },
+    })
+  })
+
+  it('omits the exit when Hermes reported none', () => {
+    // Yielded to background: the command is still running, so there is no code
+    // and the notice saying so follows the output so far.
+    const yielded = { output: 'starting', exit_code: null, error: null, status: 'yielded_to_background', note: 'Still running.' }
+    expect(toolCallComplete(completePayload({ name: 'terminal', result: yielded }))).toEqual({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: TOOL_ID,
+      status: 'completed',
+      rawOutput: yielded,
+      _meta: { terminal_output: { terminal_id: TOOL_ID, data: 'starting\nStill running.' } },
+    })
+    // A result the gateway could not decode (the executor's exception wrapper):
+    // its text is the terminal's data, since the row carries no text content.
+    expect(
+      toolCallComplete(completePayload({ name: 'terminal', result: "Error executing tool 'terminal': boom" })),
+    ).toMatchObject({
+      status: 'failed',
+      _meta: { terminal_output: { terminal_id: TOOL_ID, data: "Error executing tool 'terminal': boom" } },
+    })
+  })
+
+  it('announces a terminal call and its outcome together when there was no start', () => {
+    expect(
+      toolCallFromComplete(
+        completePayload({ name: 'terminal', args: { command: 'ls', workdir: '/repo/src' }, result: { output: 'a.ts\n', exit_code: 0 } }),
+        SESSION_CWD,
+      ),
+    ).toEqual({
+      sessionUpdate: 'tool_call',
+      toolCallId: TOOL_ID,
+      title: 'terminal',
+      name: 'terminal',
+      kind: 'execute',
+      rawInput: { command: 'ls', workdir: '/repo/src' },
+      status: 'completed',
+      rawOutput: { output: 'a.ts\n', exit_code: 0 },
+      content: [{ type: 'terminal', terminalId: TOOL_ID }],
+      _meta: {
+        terminal_info: { terminal_id: TOOL_ID, cwd: '/repo/src' },
+        terminal_output: { terminal_id: TOOL_ID, data: 'a.ts\n' },
+        terminal_exit: { terminal_id: TOOL_ID, exit_code: 0, signal: null },
+      },
     })
   })
 })

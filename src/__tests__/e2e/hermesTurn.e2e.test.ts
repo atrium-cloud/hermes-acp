@@ -49,6 +49,11 @@ const BOGUS_MODEL_VALUE_ID = 'openrouter/not-a-real-model-e2e'
 const GATED_COMMAND = 'rm -rf /tmp/hermes-acp-e2e-approval-probe'
 const GATED_PROMPT = `Use the terminal tool to run exactly this shell command, without asking me first: ${GATED_COMMAND}\nThen report the outcome in one short line.`
 
+/** An ungated command whose output is the marker, so the terminal entry's
+ * data and exit are about the real tool result rather than model prose. */
+const TERMINAL_COMMAND = `echo ${ECHO_MARKER}`
+const TERMINAL_PROMPT = `Use the terminal tool to run exactly this shell command: ${TERMINAL_COMMAND}\nThen reply with one short line.`
+
 const CANCEL_SETTLE_MS = 2_000
 
 describeE2E('hermes live turns', () => {
@@ -154,6 +159,54 @@ describeE2E('hermes live turns', () => {
       // The gateway keeps the session usable after an interrupt.
       await new Promise((settle) => setTimeout(settle, CANCEL_SETTLE_MS))
       expect(agent.child.exitCode).toBeNull()
+    },
+    E2E_BOOT_AND_TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'renders a live terminal call as a terminal entry with its real output and exit',
+    async () => {
+      // The `_meta` terminal contract against a real tool result: the row
+      // opens as a terminal rooted at the session cwd and closes with the
+      // command's output and exit code read off Hermes' decoded result.
+      fixture = await createSpawnedAgent()
+      const agent = fixture
+      const sessionId = await openPinnedSession(agent)
+
+      const response = await agent.agent.request(acp.methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: 'text', text: TERMINAL_PROMPT }],
+      })
+      expect(response.stopReason).toBe('end_turn')
+
+      const updates = agent.updates
+        .filter((notification) => notification.sessionId === sessionId)
+        .map((notification) => notification.update)
+      const opened = updates.find(
+        (update): update is Extract<acp.SessionUpdate, { sessionUpdate: 'tool_call' }> =>
+          update.sessionUpdate === 'tool_call' && update.name === 'terminal',
+      )
+      // On a miss, say what did arrive: the model skipping the tool and the
+      // gateway skipping the lifecycle frames look identical otherwise.
+      const arrived = updates.map((update) => ('name' in update ? `${update.sessionUpdate}:${update.name}` : update.sessionUpdate))
+      expect(opened, `no terminal tool_call; updates: ${arrived.join(', ')}; text: ${agent.agentText(sessionId)}`).toBeDefined()
+      const toolCallId = opened?.toolCallId
+      expect(opened).toMatchObject({
+        kind: 'execute',
+        content: [{ type: 'terminal', terminalId: toolCallId }],
+        _meta: { terminal_info: { terminal_id: toolCallId, cwd: agent.workspace } },
+      })
+      const closed = updates.find(
+        (update) => update.sessionUpdate === 'tool_call_update' && update.toolCallId === toolCallId && update.status !== undefined,
+      )
+      expect(closed).toMatchObject({
+        status: 'completed',
+        _meta: {
+          terminal_output: { terminal_id: toolCallId, data: expect.stringContaining(ECHO_MARKER) },
+          terminal_exit: { terminal_id: toolCallId, exit_code: 0, signal: null },
+        },
+      })
+      expect(closed).not.toHaveProperty('content')
     },
     E2E_BOOT_AND_TURN_TIMEOUT_MS,
   )
