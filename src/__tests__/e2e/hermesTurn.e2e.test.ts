@@ -12,7 +12,12 @@ import { rmSync } from 'node:fs'
 import * as acp from '@agentclientprotocol/sdk'
 import { afterEach, expect, it } from 'vitest'
 
-import { CONFIG_OPTION_MODEL } from '../../constants.js'
+import {
+  APPROVAL_CHOICE_DENY,
+  APPROVAL_MODE_MANUAL,
+  CONFIG_OPTION_APPROVAL_MODE,
+  CONFIG_OPTION_MODEL,
+} from '../../constants.js'
 import {
   describeE2E,
   E2E_BOOT_AND_TURN_TIMEOUT_MS,
@@ -37,6 +42,12 @@ const LONG_PROMPT = 'Count from 1 to 300, one number per line, with no other tex
 /** A model id no provider serves: upstream must refuse it loudly rather than
  * accept it and die as a silent end_turn next turn (hermes-agent#72439). */
 const BOGUS_MODEL_VALUE_ID = 'openrouter/not-a-real-model-e2e'
+
+/** A recursive delete trips Hermes' dangerous-command gate in manual approval
+ * mode (tools/approval_detection.py "recursive delete") regardless of the
+ * target, so the path is one that never exists and nothing can be lost. */
+const GATED_COMMAND = 'rm -rf /tmp/hermes-acp-e2e-approval-probe'
+const GATED_PROMPT = `Use the terminal tool to run exactly this shell command, without asking me first: ${GATED_COMMAND}\nThen report the outcome in one short line.`
 
 const CANCEL_SETTLE_MS = 2_000
 
@@ -143,6 +154,42 @@ describeE2E('hermes live turns', () => {
       // The gateway keeps the session usable after an interrupt.
       await new Promise((settle) => setTimeout(settle, CANCEL_SETTLE_MS))
       expect(agent.child.exitCode).toBeNull()
+    },
+    E2E_BOOT_AND_TURN_TIMEOUT_MS,
+  )
+
+  it(
+    'relays a live approval as session/request_permission and ends the turn after the denial',
+    async () => {
+      // The whole server→client request path against a real gateway: Hermes
+      // parks the tool on an `approval` request, the adapter turns it into
+      // `session/request_permission` anchored to a tool call the client has
+      // seen, the fail-closed client answer goes back as a response frame, and
+      // the denied tool returns so the turn can end instead of timing out.
+      fixture = await createSpawnedAgent()
+      const agent = fixture
+      const sessionId = await openPinnedSession(agent)
+      await agent.agent.request(acp.methods.agent.session.setConfigOption, {
+        sessionId,
+        configId: CONFIG_OPTION_APPROVAL_MODE,
+        value: APPROVAL_MODE_MANUAL,
+      })
+
+      const response = await agent.agent.request(acp.methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: 'text', text: GATED_PROMPT }],
+      })
+      expect(response.stopReason).toBe('end_turn')
+
+      const permission = agent.permissionRequests.find((request) => request.sessionId === sessionId)
+      expect(permission).toBeDefined()
+      expect(permission?.options.map((option) => option.optionId)).toContain(APPROVAL_CHOICE_DENY)
+      // Never a dangling id: the referenced tool call was announced first.
+      const announced = agent.updates
+        .filter((notification) => notification.sessionId === sessionId)
+        .map((notification) => notification.update)
+        .some((update) => update.sessionUpdate === 'tool_call' && update.toolCallId === permission?.toolCall.toolCallId)
+      expect(announced).toBe(true)
     },
     E2E_BOOT_AND_TURN_TIMEOUT_MS,
   )

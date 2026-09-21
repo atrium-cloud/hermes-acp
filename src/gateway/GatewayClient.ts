@@ -23,7 +23,12 @@ import {
 } from '../constants.js'
 import type { ChildProcessLike, GatewayClientOptions, GatewayMode, SpawnFn, WebSocketLike } from './options.js'
 import { expandHome } from './options.js'
-import { isKnownGatewayEventType, type GatewayEvent } from './types.js'
+import {
+  isKnownGatewayEventType,
+  isKnownServerRequestMethod,
+  type GatewayEvent,
+  type GatewayServerRequest,
+} from './types.js'
 
 export class GatewayRpcError extends Error {
   readonly code: number | undefined
@@ -48,6 +53,11 @@ const WS_READY_STATE_OPEN = 1
 // Close code the Hermes gateway sends when the WS-upgrade credential is
 // rejected (web_server.py gateway_ws).
 const WS_CLOSE_UNAUTHORIZED = 4401
+// JSON-RPC 2.0 error codes sent back on a server→client request this adapter
+// will not answer: a method it does not implement, and a known method whose
+// params are not the object its contract pins.
+const JSON_RPC_METHOD_NOT_FOUND = -32601
+const JSON_RPC_INVALID_PARAMS = -32602
 
 const defaultSpawn: SpawnFn = (command, args, options) => spawn(command, [...args], options)
 
@@ -73,9 +83,13 @@ const redactTokenInUrl = (url: string): string => url.replace(/([?&]token=)[^&]*
  * Wire protocol (tui_gateway/ws.py): newline-delimited JSON-RPC 2.0 over the
  * gateway's WebSocket. Server→client notifications always use
  * `method: "event"` with `{type, session_id?, payload?}` params; responses
- * echo the caller's id. The gateway never issues server→client requests —
- * approvals and clarify prompts arrive as events and are answered with the
- * `*.respond` methods.
+ * echo the caller's integer id. The gateway also issues server→client
+ * requests (tui_gateway/server_requests.py) — `{id: "srq-…", method, params}`
+ * with a string id — for the blocking prompts (approval, clarify, …); they
+ * are answered with a response frame carrying that id, never with a method
+ * call. A request whose method this adapter has no handler for is refused
+ * with JSON-RPC method-not-found, which upstream reads as "unanswered" and
+ * returns to the blocked tool at once instead of after its timeout.
  *
  * Lifecycle: `start()` resolves once the gateway's `gateway.ready` event has
  * been observed (or rejects with the child's stderr tail if it dies or
@@ -99,6 +113,7 @@ export class GatewayClient {
   private ws: WebSocketLike | null = null
   private readonly pending = new Map<number, PendingRequest>()
   private readonly eventHandlers = new Set<(event: GatewayEvent) => void>()
+  private readonly serverRequestHandlers = new Set<(request: GatewayServerRequest) => void>()
   private readonly exitHandlers = new Set<(code: number | null) => void>()
   private readonly stderrTail: string[] = []
   private nextRequestId = 0
@@ -132,6 +147,20 @@ export class GatewayClient {
   onEvent(handler: (event: GatewayEvent) => void): () => void {
     this.eventHandlers.add(handler)
     return () => this.eventHandlers.delete(handler)
+  }
+
+  /** Subscribe to server→client requests (known methods only; an unknown
+   * method is refused on the wire before reaching any handler). Returns an
+   * unsubscribe function. */
+  onServerRequest(handler: (request: GatewayServerRequest) => void): () => void {
+    this.serverRequestHandlers.add(handler)
+    return () => this.serverRequestHandlers.delete(handler)
+  }
+
+  /** Answer a server→client request. Throws when the transport is gone; the
+   * caller decides whether that is worth reporting (the request died with it). */
+  respond(requestId: string, result: object): void {
+    this.writeRequest({ jsonrpc: '2.0', id: requestId, result })
   }
 
   /** Subscribe to post-startup transport loss. Returns an unsubscribe
@@ -499,6 +528,10 @@ export class GatewayClient {
     const record = frame as Record<string, unknown>
 
     if (typeof record['method'] === 'string') {
+      if (typeof record['id'] === 'string') {
+        this.handleServerRequest(record['id'], record['method'], record['params'])
+        return
+      }
       if (record['method'] === 'event') {
         this.handleEvent(record['params'])
         return
@@ -536,6 +569,42 @@ export class GatewayClient {
       return
     }
     pending.resolve(frame['result'])
+  }
+
+  private handleServerRequest(id: string, method: string, params: unknown): void {
+    if (!isKnownServerRequestMethod(method)) {
+      this.log(`refusing gateway server request ${id} with unsupported method: ${method}`)
+      this.refuseServerRequest(
+        id,
+        JSON_RPC_METHOD_NOT_FOUND,
+        `hermes-agent-acp has no handler for server request method ${method}`,
+      )
+      return
+    }
+    if (typeof params !== 'object' || params === null) {
+      this.log(`refusing gateway server request ${id} (${method}) without a params object`)
+      this.refuseServerRequest(id, JSON_RPC_INVALID_PARAMS, `server request ${method} carried no params object`)
+      return
+    }
+    // Shapes are pinned in types.ts and trusted on the wire, as for events.
+    const request = { id, method, params } as GatewayServerRequest
+    for (const handler of this.serverRequestHandlers) {
+      try {
+        handler(request)
+      } catch (error) {
+        this.log(`server request handler threw: ${toError(error).message}`)
+      }
+    }
+  }
+
+  /** A JSON-RPC error frame for a request this adapter will never answer. A
+   * transport that is already gone has nothing to refuse to. */
+  private refuseServerRequest(id: string, code: number, message: string): void {
+    try {
+      this.writeRequest({ jsonrpc: '2.0', id, error: { code, message } })
+    } catch (error) {
+      this.log(`could not refuse gateway server request ${id}: ${toError(error).message}`)
+    }
   }
 
   private handleEvent(params: unknown): void {

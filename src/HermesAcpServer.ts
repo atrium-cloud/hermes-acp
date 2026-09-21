@@ -57,6 +57,7 @@ import type {
   ConfigSetParams,
   ConfigSetResult,
   GatewayEvent,
+  GatewayServerRequest,
   LazySessionInfo,
   ModelOptionsResult,
   PromptSubmitResult,
@@ -110,6 +111,9 @@ export class HermesAcpServer {
     // session onto one event stream, and routing needs the session table.
     this.hermes.onEvent((event) => {
       this.routeGatewayEvent(event)
+    })
+    this.hermes.onServerRequest((request) => {
+      this.routeServerRequest(request)
     })
   }
 
@@ -935,31 +939,44 @@ export class HermesAcpServer {
       return
     }
 
-    // A blocking request with no turn in flight has no user watching it: this
-    // adapter's client only sees a session while it is prompting. Approvals are
-    // denied so the parked agent thread is released immediately; a clarify has
-    // no fail-closed answer, so it is left to Hermes' own timeout.
-    if (session.activeTurn === null) {
-      if (event.type === 'approval.request') {
-        const requestId = event.payload.request_id
-        void this.hermes
-          .approvalRespond({ session_id: session.gatewaySessionId, request_id: requestId, choice: APPROVAL_CHOICE_DENY })
-          .catch((error: unknown) => {
-            const message = error instanceof Error ? error.message : String(error)
-            console.error(
-              `[hermes-agent-acp] gateway method approval.respond failed while denying approval ${requestId} on idle session ${session.gatewaySessionId}: ${message}`,
-            )
-          })
-        return
-      }
-      if (event.type === 'clarify.request') {
-        console.error(
-          `[hermes-agent-acp] dropped clarify.request ${event.payload.request_id}: session ${session.gatewaySessionId} has no turn in flight`,
-        )
-        return
-      }
-    }
-
     session.activeTurn?.handleEvent(event)
+  }
+
+  /**
+   * A blocking prompt from the gateway, routed like an event by its live
+   * `session_id`. With no turn in flight — or no tracked session at all — there
+   * is no user watching it: this adapter's client only sees a session while it
+   * is prompting. The gateway writes a request to the session's own transport,
+   * so nothing else will answer it either: an approval is denied so the parked
+   * agent thread is released immediately; a clarify has no fail-closed answer,
+   * so it is left to Hermes' own timeout.
+   */
+  private routeServerRequest(request: GatewayServerRequest): void {
+    const gatewaySessionId = request.params.session_id
+    const storedSessionId = this.liveIndex.get(gatewaySessionId)
+    const session = storedSessionId === undefined ? undefined : this.sessions.get(storedSessionId)
+    if (session?.activeTurn) {
+      session.activeTurn.handleServerRequest(request)
+      return
+    }
+    const idle = session ? `session ${gatewaySessionId} has no turn in flight` : `gateway session ${gatewaySessionId} is not tracked`
+    switch (request.method) {
+      case 'approval': {
+        try {
+          this.hermes.answerApproval(request.id, { choice: APPROVAL_CHOICE_DENY })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          console.error(
+            `[hermes-agent-acp] gateway transport: could not deny approval ${request.params.request_id} (${idle}): ${message}`,
+          )
+        }
+        return
+      }
+      case 'clarify':
+        console.error(`[hermes-agent-acp] dropped clarify ${request.id}: ${idle}`)
+        return
+    }
+    // A method added to GatewayServerRequest must be routed here on purpose.
+    request satisfies never
   }
 }

@@ -6,7 +6,7 @@
  * asked to cancel, and the ordering of the `session/update` notifications it
  * emits. Translation itself is delegated to `mappers.ts`.
  *
- * Turn boundary (verified against Hermes 0.20.6): `prompt.submit` returns as
+ * Turn boundary (verified against Hermes 0.21.3): `prompt.submit` returns as
  * soon as the turn is streaming, and a turn that reaches the model ends with
  * exactly one `message.complete` carrying a `status`. Every emit site for our
  * session (`tui_gateway/server.py` _run_prompt_submit, _emit_terminal_turn_error,
@@ -27,11 +27,13 @@ import * as acp from '@agentclientprotocol/sdk'
 import { APPROVAL_CHOICE_DENY, CLARIFY_ANSWER_FIELD, CLARIFY_TOOL_NAME } from '../constants.js'
 import type { HermesGateway } from '../gateway/HermesGatewayClient.js'
 import type {
-  ApprovalRequestEvent,
+  ApprovalServerRequest,
   ClarifyQuestion,
-  ClarifyRequestEvent,
+  ClarifyServerRequest,
   GatewayEvent,
+  GatewayServerRequest,
   MessageCompleteStatus,
+  RequestCancelEvent,
   TodoItem,
   Usage,
 } from '../gateway/types.js'
@@ -72,8 +74,8 @@ export interface TurnHandlerOptions {
   /** ACP sessionId (the stored session key): client-bound permission and
    * elicitation requests are correlated to the session by it. */
   readonly sessionId: string
-  /** Live gateway session_id: session-scoped gateway calls
-   * (approval.respond) carry this one, never the ACP id. */
+  /** Live gateway session_id: session-scoped gateway calls carry this one,
+   * never the ACP id. */
   readonly gatewaySessionId: string
   /** What the client advertised at `initialize`, or null if it advertised
    * nothing. Elicitation is only used against a client that supports it. */
@@ -116,23 +118,29 @@ export class TurnHandler {
    * and `tool.complete` is not re-sent unchanged. */
   private lastPlanSignature: string | null = null
 
-  /** Approvals asked of the client and not yet answered toward Hermes, with
-   * the gate row this adapter opened for them (null when the approval rides an
+  /** Approvals asked of the client and not yet answered toward Hermes, keyed
+   * by the queue entry's `request_id`, with the server request carrying it and
+   * the gate row this adapter opened for it (null when the approval rides an
    * existing gateway tool call, which the gateway closes itself). */
   private readonly pendingApprovals = new Map<
     string,
-    { readonly controller: AbortController; gateToolCallId: string | null }
+    { readonly serverRequestId: string; readonly controller: AbortController; gateToolCallId: string | null }
   >()
-  /** Every approval already answered, so a turn ending after the user answered
-   * cannot re-send a stale request_id — upstream resolves by request_id and a
-   * second respond would target whatever approval is pending by then. */
+  /** Every approval `request_id` already answered or withdrawn, so a turn
+   * ending after the user answered cannot answer it a second time — the queue
+   * re-sends a request for an entry it still holds, and one entry gets exactly
+   * one decision. */
   private readonly answeredApprovals = new Set<string>()
-  /** Elicitations in flight, so the turn's end can cancel the client's card. */
-  private readonly pendingElicitations = new Set<AbortController>()
-  /** clarify request_ids already being asked. The gateway replays a pending
-   * clarify to a reconnecting client, and a replay must not open a second card
-   * for a question the user is already looking at. */
+  /** Elicitations in flight, each with the server request it is asking for,
+   * so the turn's end or a `request.cancel` can cancel the client's card. */
+  private readonly pendingElicitations = new Map<AbortController, string>()
+  /** clarify requests already being asked, by server request id. The gateway
+   * re-delivers an open clarify to a reconnecting client, and a replay must not
+   * open a second card for a question the user is already looking at. */
   private readonly askingClarifyRequests = new Set<string>()
+  /** Server requests the gateway withdrew (`request.cancel`): a late answer
+   * from the client is dropped rather than written to a request that is gone. */
+  private readonly withdrawnServerRequests = new Set<string>()
 
   constructor(options: TurnHandlerOptions) {
     this.updates = options.updates
@@ -194,18 +202,40 @@ export class TurnHandler {
     this.settle({ kind: 'failed', message })
   }
 
+  /**
+   * A blocking prompt from the gateway, addressed to this turn's session. A
+   * request that lands in the window between the turn settling and the server
+   * clearing the slot still has an agent thread parked on it: an approval is
+   * denied rather than dropped, a clarify has no fail-closed answer and is
+   * left to Hermes' timeout.
+   */
+  handleServerRequest(request: GatewayServerRequest): void {
+    switch (request.method) {
+      case 'approval': {
+        if (this.settled) {
+          this.respondToApproval(request.params.request_id, request.id, APPROVAL_CHOICE_DENY)
+          return
+        }
+        this.track(this.handleApprovalRequest(request), `approval round-trip for request ${request.id}`)
+        return
+      }
+      case 'clarify': {
+        if (this.settled) {
+          console.error(`[hermes-agent-acp] dropped clarify ${request.id}: it arrived after the turn ended`)
+          return
+        }
+        this.track(this.handleClarifyRequest(request), `clarify round-trip for request ${request.id}`)
+        return
+      }
+    }
+    // A method added to GatewayServerRequest must be routed here on purpose.
+    request satisfies never
+  }
+
   handleEvent(event: GatewayEvent): void {
     if (this.settled) {
-      // An approval that lands in the window between the turn settling and the
-      // server clearing the slot still has an agent thread parked on it, so it
-      // is denied rather than dropped. Everything else is turn narration with
-      // nowhere left to go.
-      if (event.type === 'approval.request') {
-        this.track(
-          this.respondToApproval(event.payload.request_id, APPROVAL_CHOICE_DENY),
-          `denying approval ${event.payload.request_id} received after the turn ended`,
-        )
-      }
+      // Turn narration with nowhere left to go; teardown has already withdrawn
+      // every client-side prompt a `request.cancel` could target.
       return
     }
 
@@ -306,17 +336,9 @@ export class TurnHandler {
         // handshake. Nothing about it is session- or turn-scoped.
         return
 
-      case 'approval.request': {
-        const payload = event.payload
-        this.track(this.handleApprovalRequest(payload), `approval round-trip for request ${payload.request_id}`)
+      case 'request.cancel':
+        this.withdrawServerRequest(event.payload)
         return
-      }
-
-      case 'clarify.request': {
-        const payload = event.payload
-        this.track(this.handleClarifyRequest(payload), `clarify round-trip for request ${payload.request_id}`)
-        return
-      }
 
       case 'error':
         // Before any `message.start` this is the turn's only ending: the
@@ -385,10 +407,40 @@ export class TurnHandler {
     })
   }
 
+  // ── Withdrawn requests ────────────────────────────────────────────────────
+
+  /**
+   * The gateway took a blocking prompt back (its wait timed out, the turn was
+   * interrupted, the session closed): the client's card is cancelled and no
+   * answer goes out for it. An approval's gate row closes as failed — the gate
+   * ran and nobody allowed it.
+   */
+  private withdrawServerRequest(payload: RequestCancelEvent['payload']): void {
+    this.withdrawnServerRequests.add(payload.id)
+    for (const [requestId, pending] of [...this.pendingApprovals]) {
+      if (pending.serverRequestId !== payload.id) {
+        continue
+      }
+      this.answeredApprovals.add(requestId)
+      this.pendingApprovals.delete(requestId)
+      pending.controller.abort()
+      if (pending.gateToolCallId !== null) {
+        this.send(approvalGateResolved(pending.gateToolCallId, false))
+      }
+      console.error(`[hermes-agent-acp] approval ${requestId} withdrawn by Hermes (${payload.reason})`)
+    }
+    for (const [controller, serverRequestId] of this.pendingElicitations) {
+      if (serverRequestId === payload.id) {
+        controller.abort()
+        console.error(`[hermes-agent-acp] clarify ${payload.id} withdrawn by Hermes (${payload.reason})`)
+      }
+    }
+  }
+
   // ── Approvals ─────────────────────────────────────────────────────────────
 
   /**
-   * `approval.request` → `session/request_permission` → `approval.respond`.
+   * `approval` server request → `session/request_permission` → response frame.
    *
    * Every exit denies unless the user picked an allowing option: a client that
    * errors, a connection that closed, an outcome that names an option the
@@ -396,8 +448,15 @@ export class TurnHandler {
    * toward Hermes, promptly, so the parked agent thread is released instead of
    * waiting out the upstream timeout.
    */
-  private async handleApprovalRequest(payload: ApprovalRequestEvent['payload']): Promise<void> {
+  private async handleApprovalRequest(request: ApprovalServerRequest): Promise<void> {
+    const payload = request.params
     const requestId = payload.request_id
+    if (this.answeredApprovals.has(requestId) || this.pendingApprovals.has(requestId)) {
+      // A re-delivery (`open_requests` after a reconnect) carries the same
+      // server request id as the original, so an entry this turn already
+      // decided or is deciding needs no second prompt and no second frame.
+      return
+    }
     const { options, unknownChoices } = approvalOptions(payload)
     if (unknownChoices.length > 0) {
       // Not offered and not relayed: upstream approves on every resolved choice
@@ -409,12 +468,12 @@ export class TurnHandler {
     }
     if (options.length === 0) {
       console.error(`[hermes-agent-acp] approval ${requestId} offered no presentable choice; denying`)
-      await this.respondToApproval(requestId, APPROVAL_CHOICE_DENY)
+      this.respondToApproval(requestId, request.id, APPROVAL_CHOICE_DENY)
       return
     }
 
     const controller = new AbortController()
-    const pending = { controller, gateToolCallId: null as string | null }
+    const pending = { serverRequestId: request.id, controller, gateToolCallId: null as string | null }
     this.pendingApprovals.set(requestId, pending)
 
     // A gateway tool call is in flight for every gated tool: `tool.start` is
@@ -467,9 +526,9 @@ export class TurnHandler {
     }
 
     if (this.answeredApprovals.has(requestId)) {
-      // Answered by turn-end teardown while this prompt was open: the decision
-      // toward Hermes was "deny" and the gate row is already closed, so a late
-      // client answer must change neither.
+      // Answered by turn-end teardown while this prompt was open, or withdrawn
+      // by Hermes: the decision toward Hermes is made and the gate row is
+      // already closed, so a late client answer must change neither.
       return
     }
     if (pending.gateToolCallId !== null) {
@@ -481,7 +540,7 @@ export class TurnHandler {
       // an update after that would walk the row backwards.
       this.send({ sessionUpdate: 'tool_call_update', toolCallId, status: 'in_progress' })
     }
-    await this.respondToApproval(requestId, choice)
+    this.respondToApproval(requestId, request.id, choice)
   }
 
   /**
@@ -489,20 +548,22 @@ export class TurnHandler {
    * off: `resolve_gateway_approval` would otherwise apply this one answer to
    * every approval queued on the session, including ones the user never saw.
    */
-  private async respondToApproval(requestId: string, choice: string): Promise<void> {
+  private respondToApproval(requestId: string, serverRequestId: string, choice: string): void {
     if (this.answeredApprovals.has(requestId)) {
       return
     }
     this.answeredApprovals.add(requestId)
     this.pendingApprovals.delete(requestId)
+    if (this.withdrawnServerRequests.has(serverRequestId)) {
+      return
+    }
     try {
-      await this.hermes.approvalRespond({ session_id: this.gatewaySessionId, request_id: requestId, choice })
+      this.hermes.answerApproval(serverRequestId, { choice })
     } catch (error) {
-      // Nothing to recover: the approval is answered or Hermes has already
-      // dropped the queue (an interrupt unregisters it), and there is no ACP
-      // channel to report a notification-shaped failure on.
+      // Nothing to recover: the transport is gone and the request with it, and
+      // there is no ACP channel to report a notification-shaped failure on.
       console.error(
-        `[hermes-agent-acp] gateway method approval.respond failed for request ${requestId}: ${describeError(error)}`,
+        `[hermes-agent-acp] gateway transport: could not answer approval ${requestId} (${serverRequestId}): ${describeError(error)}`,
       )
     }
   }
@@ -510,18 +571,20 @@ export class TurnHandler {
   // ── Clarify ───────────────────────────────────────────────────────────────
 
   /**
-   * `clarify.request` → `elicitation/create` → `clarify.respond`.
+   * `clarify` server request → `elicitation/create` → response frame (one
+   * question) or `clarify.lock` per question (a batch).
    *
    * A question is not a permission, so there is no fallback onto a permission
    * prompt and no fail-closed answer: when the client cannot or will not
    * answer, the adapter says nothing and Hermes' own timeout resolves it. An
    * invented answer would reach the model as though the user had typed it.
    */
-  private async handleClarifyRequest(payload: ClarifyRequestEvent['payload']): Promise<void> {
-    const requestId = payload.request_id
+  private async handleClarifyRequest(request: ClarifyServerRequest): Promise<void> {
+    const requestId = request.id
+    const payload = request.params
     if (!clientSupportsFormElicitation(this.clientCapabilities)) {
       console.error(
-        `[hermes-agent-acp] dropped clarify.request ${requestId}: the client does not support form elicitation, so Hermes will time the question out`,
+        `[hermes-agent-acp] dropped clarify ${requestId}: the client does not support form elicitation, so Hermes will time the question out`,
       )
       return
     }
@@ -545,18 +608,19 @@ export class TurnHandler {
 
       const question = payload.question
       if (question === undefined || question === '') {
-        console.error(`[hermes-agent-acp] dropped clarify.request ${requestId}: neither a question nor a question list`)
+        console.error(`[hermes-agent-acp] dropped clarify ${requestId}: neither a question nor a question list`)
         return
       }
-      if (this.settled) {
-        // Settled during the drain above: teardown has already cancelled every
-        // elicitation it knew about, so a card opened now is one nothing will
-        // ever abort. Same guard the batch path applies per question.
-        console.error(`[hermes-agent-acp] clarify ${requestId} abandoned: the turn ended`)
+      if (this.settled || this.withdrawnServerRequests.has(requestId)) {
+        // Settled or withdrawn during the drain above: teardown has already
+        // cancelled every elicitation it knew about, so a card opened now is
+        // one nothing will ever abort. Same guard the batch path applies per
+        // question.
+        console.error(`[hermes-agent-acp] clarify ${requestId} abandoned: the turn ended or Hermes withdrew it`)
         return
       }
 
-      const answer = await this.askClarify({
+      const answer = await this.askClarify(requestId, {
         sessionId: this.sessionId,
         question,
         choices: payload.choices,
@@ -567,13 +631,19 @@ export class TurnHandler {
         console.error(`[hermes-agent-acp] clarify ${requestId} went unanswered by the client; leaving it to Hermes' timeout`)
         return
       }
-      if (this.settled) {
+      if (this.settled || this.withdrawnServerRequests.has(requestId)) {
         console.error(
-          `[hermes-agent-acp] clarify ${requestId} answer arrived after the turn ended; dropping it`,
+          `[hermes-agent-acp] clarify ${requestId} answer arrived after the turn ended or Hermes withdrew the question; dropping it`,
         )
         return
       }
-      await this.sendClarifyAnswer(requestId, { answer })
+      try {
+        this.hermes.answerClarify(requestId, { answer })
+      } catch (error) {
+        console.error(
+          `[hermes-agent-acp] gateway transport: could not answer clarify ${requestId}: ${describeError(error)}`,
+        )
+      }
     } finally {
       this.askingClarifyRequests.delete(requestId)
     }
@@ -596,11 +666,11 @@ export class TurnHandler {
       if (alreadyAnswered !== undefined && Object.hasOwn(alreadyAnswered, question.qid)) {
         continue
       }
-      if (this.settled) {
-        console.error(`[hermes-agent-acp] clarify ${requestId} abandoned mid-batch: the turn ended`)
+      if (this.settled || this.withdrawnServerRequests.has(requestId)) {
+        console.error(`[hermes-agent-acp] clarify ${requestId} abandoned mid-batch: the turn ended or Hermes withdrew it`)
         return
       }
-      const answer = await this.askClarify({
+      const answer = await this.askClarify(requestId, {
         sessionId: this.sessionId,
         question: question.question,
         choices: question.choices,
@@ -613,23 +683,27 @@ export class TurnHandler {
         )
         return
       }
-      if (this.settled) {
-        // Answered after the turn ended: locking it would record a decision for
-        // a turn nobody is watching, and upstream has already expired the card.
+      if (this.settled || this.withdrawnServerRequests.has(requestId)) {
+        // Answered after the turn ended or the question was withdrawn: locking
+        // it would record a decision for a turn nobody is watching, and
+        // upstream has already expired the card.
         console.error(
-          `[hermes-agent-acp] clarify ${requestId} answer for question ${question.qid} arrived after the turn ended; dropping it`,
+          `[hermes-agent-acp] clarify ${requestId} answer for question ${question.qid} arrived after the turn ended or Hermes withdrew the question; dropping it`,
         )
         return
       }
-      await this.sendClarifyAnswer(requestId, { answer, question_id: question.qid })
+      await this.lockClarifyAnswer(requestId, question.qid, answer)
     }
   }
 
   /** Ask one question; null means the client declined, cancelled, errored, or
    * accepted a form with the answer field left empty. */
-  private async askClarify(request: Parameters<typeof clarifyElicitation>[0]): Promise<string | null> {
+  private async askClarify(
+    serverRequestId: string,
+    request: Parameters<typeof clarifyElicitation>[0],
+  ): Promise<string | null> {
     const controller = new AbortController()
-    this.pendingElicitations.add(controller)
+    this.pendingElicitations.set(controller, serverRequestId)
     try {
       const response = await this.updates.createElicitation(clarifyElicitation(request), controller.signal)
       if (!acp.CreateElicitationResponse.isAccept(response)) {
@@ -645,9 +719,9 @@ export class TurnHandler {
     }
   }
 
-  private async sendClarifyAnswer(requestId: string, params: { answer: string; question_id?: string }): Promise<void> {
+  private async lockClarifyAnswer(requestId: string, questionId: string, answer: string): Promise<void> {
     try {
-      const result = await this.hermes.clarifyRespond({ request_id: requestId, ...params })
+      const result = await this.hermes.clarifyLock({ request_id: requestId, question_id: questionId, answer })
       if (result.status === 'expired') {
         // Upstream tolerates a late answer rather than erroring on it; the
         // question is gone and the agent thread has already moved on.
@@ -655,7 +729,7 @@ export class TurnHandler {
       }
     } catch (error) {
       console.error(
-        `[hermes-agent-acp] gateway method clarify.respond failed for request ${requestId}: ${describeError(error)}`,
+        `[hermes-agent-acp] gateway method clarify.lock failed for request ${requestId}: ${describeError(error)}`,
       )
     }
   }
@@ -677,12 +751,9 @@ export class TurnHandler {
       if (pending.gateToolCallId !== null) {
         this.send(approvalGateResolved(pending.gateToolCallId, false))
       }
-      this.track(
-        this.respondToApproval(requestId, APPROVAL_CHOICE_DENY),
-        `denying unanswered approval ${requestId} at turn end`,
-      )
+      this.respondToApproval(requestId, pending.serverRequestId, APPROVAL_CHOICE_DENY)
     }
-    for (const controller of this.pendingElicitations) {
+    for (const controller of this.pendingElicitations.keys()) {
       controller.abort()
     }
   }

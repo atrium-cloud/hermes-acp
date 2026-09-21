@@ -57,18 +57,23 @@ const METHOD_REGISTRAR_PATTERN = /@?\b(?:method|_session_method|_correction_meth
 // collected as events because ws.py control frames (hb, hello, rpc, …) would
 // drown the report.
 const EMIT_CALL_PATTERN = /_emit\(\s*"([a-z0-9._-]+)"/g
+// Server→client requests are issued through `server_requests.send(...)` /
+// `send_async(...)` (tui_gateway/server_requests.py) with the method name as
+// the first string argument.
+const SERVER_REQUEST_SEND_PATTERN = /\bserver_requests\.send(?:_async)?\(\s*"([a-z0-9._-]+)"/g
 // Existence oracle for events that reach the wire without a literal `_emit`
-// call: gateway.ready is a hand-built frame in entry.py/ws.py, and
-// clarify.request goes through an emission helper. Only these names may fall
-// back to the string-literal oracle — generic names (like `error`, which
-// appears as a dict key everywhere) must match a real `_emit` site or they
-// could survive their own removal from the event stream unnoticed.
-const LITERAL_ORACLE_EVENTS = new Set(['gateway.ready', 'clarify.request'])
+// call: gateway.ready is a hand-built frame in entry.py/ws.py. Only these
+// names may fall back to the string-literal oracle — generic names (like
+// `error`, which appears as a dict key everywhere) must match a real `_emit`
+// site or they could survive their own removal from the event stream
+// unnoticed.
+const LITERAL_ORACLE_EVENTS = new Set(['gateway.ready'])
 // Any dotted-or-plain lowercase string literal counts toward existence.
 const STRING_LITERAL_PATTERN = /"([a-z][a-z0-9._-]*)"/g
 
 // Our-side extraction patterns (TypeScript source).
 const KNOWN_EVENTS_BLOCK_PATTERN = /const KNOWN_EVENT_TYPES[^{]*\{([\s\S]*?)\n\}/
+const KNOWN_SERVER_REQUESTS_BLOCK_PATTERN = /const KNOWN_SERVER_REQUEST_METHODS[^{]*\{([\s\S]*?)\n\}/
 const KNOWN_EVENT_KEY_PATTERN = /^\s*(?:'([a-z0-9._-]+)'|([a-z][a-zA-Z0-9]*)):\s*true,?\s*$/gm
 const REQUEST_CALL_PATTERN = /request\(\s*'([a-z0-9._-]+)'/g
 const PYPROJECT_VERSION_PATTERN = /^version\s*=\s*"([^"]+)"/m
@@ -84,9 +89,11 @@ export interface UpstreamSite {
 export interface UpstreamSurface {
   readonly methods: ReadonlyMap<string, readonly UpstreamSite[]>
   readonly emittedEvents: ReadonlyMap<string, readonly UpstreamSite[]>
+  /** Server→client request methods, by their `server_requests.send*` sites. */
+  readonly serverRequests: ReadonlyMap<string, readonly UpstreamSite[]>
   /** Every name that appears as a string literal anywhere in tui_gateway —
    * the existence oracle for events emitted through variables (e.g.
-   * clarify.request goes through a helper, not a literal `_emit`). */
+   * gateway.ready is a hand-built frame, not a literal `_emit`). */
   readonly literals: ReadonlyMap<string, readonly UpstreamSite[]>
 }
 
@@ -135,20 +142,22 @@ const collect = (
 export function extractUpstreamSurface(files: ReadonlyMap<string, string>): UpstreamSurface {
   const methods = new Map<string, UpstreamSite[]>()
   const emittedEvents = new Map<string, UpstreamSite[]>()
+  const serverRequests = new Map<string, UpstreamSite[]>()
   const literals = new Map<string, UpstreamSite[]>()
   for (const [file, source] of files) {
     const lineAt = buildLineLookup(source)
     collect(methods, file, source, METHOD_REGISTRAR_PATTERN, lineAt)
     collect(emittedEvents, file, source, EMIT_CALL_PATTERN, lineAt)
+    collect(serverRequests, file, source, SERVER_REQUEST_SEND_PATTERN, lineAt)
     collect(literals, file, source, STRING_LITERAL_PATTERN, lineAt)
   }
-  return { methods, emittedEvents, literals }
+  return { methods, emittedEvents, serverRequests, literals }
 }
 
-export function extractOurEventTypes(typesSource: string): readonly string[] {
-  const block = KNOWN_EVENTS_BLOCK_PATTERN.exec(typesSource)?.[1]
+function extractRegistryKeys(typesSource: string, blockPattern: RegExp, registryName: string): readonly string[] {
+  const block = blockPattern.exec(typesSource)?.[1]
   if (!block) {
-    throw new Error(`drift check: could not locate KNOWN_EVENT_TYPES in ${TYPES_PATH}`)
+    throw new Error(`drift check: could not locate ${registryName} in ${TYPES_PATH}`)
   }
   const names: string[] = []
   for (const match of block.matchAll(KNOWN_EVENT_KEY_PATTERN)) {
@@ -158,9 +167,17 @@ export function extractOurEventTypes(typesSource: string): readonly string[] {
     }
   }
   if (names.length === 0) {
-    throw new Error(`drift check: KNOWN_EVENT_TYPES parsed empty from ${TYPES_PATH}`)
+    throw new Error(`drift check: ${registryName} parsed empty from ${TYPES_PATH}`)
   }
   return names
+}
+
+export function extractOurEventTypes(typesSource: string): readonly string[] {
+  return extractRegistryKeys(typesSource, KNOWN_EVENTS_BLOCK_PATTERN, 'KNOWN_EVENT_TYPES')
+}
+
+export function extractOurServerRequestMethods(typesSource: string): readonly string[] {
+  return extractRegistryKeys(typesSource, KNOWN_SERVER_REQUESTS_BLOCK_PATTERN, 'KNOWN_SERVER_REQUEST_METHODS')
 }
 
 export function extractOurMethods(clientSource: string): readonly string[] {
@@ -174,7 +191,11 @@ export function extractOurMethods(clientSource: string): readonly string[] {
 export interface DriftReport {
   readonly missingMethods: readonly string[]
   readonly missingEvents: readonly string[]
+  readonly missingServerRequests: readonly string[]
   readonly newUpstreamEvents: readonly string[]
+  /** Server requests upstream can block a tool on that this adapter refuses
+   * with method-not-found (docs/caveats.md "Unsupported gateway round-trips"). */
+  readonly newUpstreamServerRequests: readonly string[]
   readonly breaking: boolean
 }
 
@@ -182,6 +203,7 @@ export function diffSurfaces(
   upstream: UpstreamSurface,
   ourMethods: readonly string[],
   ourEvents: readonly string[],
+  ourServerRequests: readonly string[],
 ): DriftReport {
   const missingMethods = ourMethods.filter((name) => !upstream.methods.has(name))
   const missingEvents = ourEvents.filter(
@@ -189,13 +211,20 @@ export function diffSurfaces(
       !upstream.emittedEvents.has(name) &&
       !(LITERAL_ORACLE_EVENTS.has(name) && upstream.literals.has(name)),
   )
+  const missingServerRequests = ourServerRequests.filter((name) => !upstream.serverRequests.has(name))
   const known = new Set(ourEvents)
   const newUpstreamEvents = [...upstream.emittedEvents.keys()].filter((name) => !known.has(name)).sort()
+  const knownServerRequests = new Set(ourServerRequests)
+  const newUpstreamServerRequests = [...upstream.serverRequests.keys()]
+    .filter((name) => !knownServerRequests.has(name))
+    .sort()
   return {
     missingMethods,
     missingEvents,
+    missingServerRequests,
     newUpstreamEvents,
-    breaking: missingMethods.length > 0 || missingEvents.length > 0,
+    newUpstreamServerRequests,
+    breaking: missingMethods.length > 0 || missingEvents.length > 0 || missingServerRequests.length > 0,
   }
 }
 
@@ -301,9 +330,11 @@ async function main(): Promise<void> {
 
   try {
     const upstream = extractUpstreamSurface(readGatewayFiles(hermesRoot))
-    const ourEvents = extractOurEventTypes(readFileSync(TYPES_PATH, 'utf8'))
+    const typesSource = readFileSync(TYPES_PATH, 'utf8')
+    const ourEvents = extractOurEventTypes(typesSource)
+    const ourServerRequests = extractOurServerRequestMethods(typesSource)
     const ourMethods = extractOurMethods(readFileSync(CLIENT_PATH, 'utf8'))
-    const report = diffSurfaces(upstream, ourMethods, ourEvents)
+    const report = diffSurfaces(upstream, ourMethods, ourEvents, ourServerRequests)
 
     const upstreamVersion = PYPROJECT_VERSION_PATTERN.exec(
       readFileSync(join(hermesRoot, PYPROJECT_FILE), 'utf8'),
@@ -324,9 +355,19 @@ async function main(): Promise<void> {
         console.log(`  ${name}`)
       }
     }
+    if (report.missingServerRequests.length > 0) {
+      console.log('\nBREAKING — server requests we answer that upstream no longer sends:')
+      for (const name of report.missingServerRequests) {
+        console.log(`  ${name}`)
+      }
+    }
     if (report.newUpstreamEvents.length > 0) {
       console.log('\nInfo — upstream event emissions not in our typed registry (dropped at runtime):')
       console.log(`  ${report.newUpstreamEvents.join(', ')}`)
+    }
+    if (report.newUpstreamServerRequests.length > 0) {
+      console.log('\nInfo — upstream server requests not in our typed registry (refused with method-not-found):')
+      console.log(`  ${report.newUpstreamServerRequests.join(', ')}`)
     }
 
     console.log('\nHand-verification worklist (shapes are not derivable; re-check payloads at these sites):')
@@ -337,6 +378,10 @@ async function main(): Promise<void> {
     for (const name of ourEvents) {
       const sites = (upstream.emittedEvents.get(name) ?? upstream.literals.get(name) ?? []).slice(0, 4)
       console.log(`  event ${name}: ${sites.map((site) => `${site.file}:${site.line}`).join(', ') || 'MISSING'}`)
+    }
+    for (const name of ourServerRequests) {
+      const sites = (upstream.serverRequests.get(name) ?? []).slice(0, 4)
+      console.log(`  server request ${name}: ${sites.map((site) => `${site.file}:${site.line}`).join(', ') || 'MISSING'}`)
     }
 
     if (report.breaking) {

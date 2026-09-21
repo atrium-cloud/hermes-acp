@@ -29,9 +29,10 @@ import { SESSION_DIRECTORY_FILENAME } from '../constants.js'
 import { GatewayRpcError } from '../gateway/GatewayClient.js'
 import type { HermesGateway } from '../gateway/HermesGatewayClient.js'
 import type {
-  ApprovalRespondParams,
-  ApprovalRespondResult,
-  ClarifyRespondParams,
+  ApprovalResult,
+  ClarifyLockParams,
+  ClarifyLockResult,
+  ClarifyResult,
   CommandDispatchParams,
   CommandDispatchResult,
   CommandsCatalogResult,
@@ -42,13 +43,13 @@ import type {
   FileAttachParams,
   FileAttachResult,
   GatewayEvent,
+  GatewayServerRequest,
   ImageAttachBytesParams,
   ImageAttachBytesResult,
   ImageDetachParams,
   ImageDetachResult,
   ModelOptionsParams,
   ModelOptionsResult,
-  PromptRespondResult,
   PromptSubmitParams,
   PromptSubmitResult,
   SessionBranchParams,
@@ -85,13 +86,20 @@ export const UPDATE_DELIVERY_FAILURE = 'test client refused the session/update'
 
 // ── Scripted gateway ────────────────────────────────────────────────────────
 
-/** Gateway methods that go over JSON-RPC (everything but the subscription). */
-export type GatewayRequestMethod = Exclude<keyof HermesGateway, 'onEvent'>
+/** Gateway methods that go over JSON-RPC and answer with a result (everything
+ * but the subscriptions and the fire-and-forget response frames). */
+export type GatewayRequestMethod = Exclude<
+  keyof HermesGateway,
+  'onEvent' | 'onServerRequest' | GatewayResponseMethod
+>
+/** The server→client response frames: recorded like calls, but they carry no
+ * result to script, so they never reject for want of one. */
+export type GatewayResponseMethod = 'answerApproval' | 'answerClarify'
 
 type GatewayResult<Method extends GatewayRequestMethod> = Awaited<ReturnType<HermesGateway[Method]>>
 
 export interface GatewayCall {
-  readonly method: GatewayRequestMethod
+  readonly method: GatewayRequestMethod | GatewayResponseMethod
   readonly args: readonly unknown[]
 }
 
@@ -107,6 +115,7 @@ export class ScriptedGateway implements HermesGateway {
   private readonly results = new Map<GatewayRequestMethod, unknown>()
   private readonly failures = new Map<GatewayRequestMethod, Error>()
   private readonly eventHandlers = new Set<(event: GatewayEvent) => void>()
+  private readonly serverRequestHandlers = new Set<(request: GatewayServerRequest) => void>()
 
   /** Script the result of the next (and every) call to `method`. A promise is
    * accepted so a test can hold a call open (e.g. cancel-while-staging). */
@@ -146,6 +155,20 @@ export class ScriptedGateway implements HermesGateway {
     this.eventHandlers.add(handler)
     return () => {
       this.eventHandlers.delete(handler)
+    }
+  }
+
+  /** Deliver a server→client request as if the gateway had sent it. */
+  emitServerRequest(request: GatewayServerRequest): void {
+    for (const handler of this.serverRequestHandlers) {
+      handler(request)
+    }
+  }
+
+  onServerRequest(handler: (request: GatewayServerRequest) => void): () => void {
+    this.serverRequestHandlers.add(handler)
+    return () => {
+      this.serverRequestHandlers.delete(handler)
     }
   }
 
@@ -201,12 +224,16 @@ export class ScriptedGateway implements HermesGateway {
     return this.respond('sessionDelete', [sessionId])
   }
 
-  approvalRespond(params: ApprovalRespondParams): Promise<ApprovalRespondResult> {
-    return this.respond('approvalRespond', [params])
+  answerApproval(requestId: string, result: ApprovalResult): void {
+    this.calls.push({ method: 'answerApproval', args: [requestId, result] })
   }
 
-  clarifyRespond(params: ClarifyRespondParams): Promise<PromptRespondResult> {
-    return this.respond('clarifyRespond', [params])
+  answerClarify(requestId: string, result: ClarifyResult): void {
+    this.calls.push({ method: 'answerClarify', args: [requestId, result] })
+  }
+
+  clarifyLock(params: ClarifyLockParams): Promise<ClarifyLockResult> {
+    return this.respond('clarifyLock', [params])
   }
 
   /** The RPC budget is recorded only when the caller set one, so calls that
@@ -291,10 +318,10 @@ export const TEST_APPROVAL_MODE = 'manual'
  * none of them.
  */
 export const TEST_GATEWAY_BUILD_IDENTITY: Pick<SessionInfo, 'version' | 'release_date' | 'desktop_contract'> = {
-  version: '0.20.6',
+  version: '0.21.3',
   // `hermes_cli.__release_date__`'s own format, dots not dashes.
-  release_date: '2026.8.27',
-  desktop_contract: 6,
+  release_date: '2026.9.14',
+  desktop_contract: 7,
 }
 
 /**

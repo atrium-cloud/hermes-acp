@@ -1,8 +1,9 @@
 import type { GatewayClient } from './GatewayClient.js'
 import type {
-  ApprovalRespondParams,
-  ApprovalRespondResult,
-  ClarifyRespondParams,
+  ApprovalResult,
+  ClarifyLockParams,
+  ClarifyLockResult,
+  ClarifyResult,
   CommandDispatchParams,
   CommandDispatchResult,
   CommandsCatalogResult,
@@ -13,13 +14,13 @@ import type {
   FileAttachParams,
   FileAttachResult,
   GatewayEvent,
+  GatewayServerRequest,
   ImageAttachBytesParams,
   ImageAttachBytesResult,
   ImageDetachParams,
   ImageDetachResult,
   ModelOptionsParams,
   ModelOptionsResult,
-  PromptRespondResult,
   PromptSubmitParams,
   PromptSubmitResult,
   SessionBranchParams,
@@ -65,6 +66,10 @@ export class HermesGatewayClient {
 
   onEvent(handler: (event: GatewayEvent) => void): () => void {
     return this.gateway.onEvent(handler)
+  }
+
+  onServerRequest(handler: (request: GatewayServerRequest) => void): () => void {
+    return this.gateway.onServerRequest(handler)
   }
 
   sessionCreate(params: SessionCreateParams): Promise<SessionCreateResult> {
@@ -130,12 +135,25 @@ export class HermesGatewayClient {
     return this.gateway.request('session.delete', { session_id: sessionId })
   }
 
-  approvalRespond(params: ApprovalRespondParams): Promise<ApprovalRespondResult> {
-    return this.gateway.request('approval.respond', params)
+  /**
+   * Answer an `approval` server request. A response frame, not a method: the
+   * gateway resolves the queue entry from it (server.py `_emit_approval_request`
+   * on_result) and withdraws the request itself. Throws when the transport is
+   * gone.
+   */
+  answerApproval(requestId: string, result: ApprovalResult): void {
+    this.gateway.respond(requestId, result)
   }
 
-  clarifyRespond(params: ClarifyRespondParams): Promise<PromptRespondResult> {
-    return this.gateway.request('clarify.respond', params)
+  /** Answer a single-question `clarify` server request. Throws when the
+   * transport is gone. */
+  answerClarify(requestId: string, result: ClarifyResult): void {
+    this.gateway.respond(requestId, result)
+  }
+
+  /** Lock one batch-clarify answer; the last lock resolves the request. */
+  clarifyLock(params: ClarifyLockParams): Promise<ClarifyLockResult> {
+    return this.gateway.request('clarify.lock', params)
   }
 
   /**

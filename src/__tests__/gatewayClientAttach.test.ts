@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { ENV_SESSION_TOKEN } from '../constants.js'
-import type { GatewayEvent } from '../gateway/types.js'
+import type { GatewayEvent, GatewayServerRequest } from '../gateway/types.js'
 import { createHarness, READY_FRAME, startReadyClient } from './gatewayTestDoubles.js'
 
 describe('GatewayClient over WebSocket (attach mode)', () => {
@@ -149,6 +149,50 @@ describe('GatewayClient over WebSocket (attach mode)', () => {
       'ignoring unknown gateway event type: pet.generate.progress',
       'ignoring unknown gateway event type: toString',
     ])
+  })
+
+  it('dispatches known server requests, answers them on their id, and refuses unknown methods', async () => {
+    const { client, socket, logs } = await startReadyClient()
+
+    const requests: GatewayServerRequest[] = []
+    client.onServerRequest((request) => requests.push(request))
+
+    // A string id plus a method is the gateway asking, not notifying.
+    socket.serverSend({
+      jsonrpc: '2.0',
+      id: 'srq-1',
+      method: 'approval',
+      params: { session_id: 's1', request_id: 'r1', command: 'rm -rf build', description: 'delete' },
+    })
+    socket.serverSend({ jsonrpc: '2.0', id: 'srq-2', method: 'sudo', params: { session_id: 's1' } })
+    socket.serverSend({ jsonrpc: '2.0', id: 'srq-3', method: 'clarify', params: 'not-an-object' })
+
+    expect(requests).toEqual([
+      {
+        id: 'srq-1',
+        method: 'approval',
+        params: { session_id: 's1', request_id: 'r1', command: 'rm -rf build', description: 'delete' },
+      },
+    ])
+    // The unsupported prompt is refused on the wire so the blocked tool fails
+    // now instead of after its timeout; nothing reaches the subscribers.
+    expect(JSON.parse(socket.sent[0]!)).toEqual({
+      jsonrpc: '2.0',
+      id: 'srq-2',
+      error: { code: -32601, message: 'hermes-agent-acp has no handler for server request method sudo' },
+    })
+    expect(JSON.parse(socket.sent[1]!)).toEqual({
+      jsonrpc: '2.0',
+      id: 'srq-3',
+      error: { code: -32602, message: 'server request clarify carried no params object' },
+    })
+    expect(logs.filter((line) => line.includes('server request'))).toEqual([
+      'refusing gateway server request srq-2 with unsupported method: sudo',
+      'refusing gateway server request srq-3 (clarify) without a params object',
+    ])
+
+    client.respond('srq-1', { choice: 'deny' })
+    expect(JSON.parse(socket.sent[2]!)).toEqual({ jsonrpc: '2.0', id: 'srq-1', result: { choice: 'deny' } })
   })
 
   it('isolates throwing onEvent subscribers and does not interrupt dispatch', async () => {

@@ -30,6 +30,7 @@ import { fileURLToPath } from 'node:url'
 import * as acp from '@agentclientprotocol/sdk'
 import type {
   CreateElicitationResponse,
+  RequestPermissionRequest,
   RequestPermissionResponse,
   SessionNotification,
 } from '@agentclientprotocol/sdk'
@@ -100,6 +101,9 @@ export interface SpawnedAgent {
   readonly agent: acp.ClientContext
   /** Every `session/update` received, in arrival order. */
   readonly updates: readonly SessionNotification[]
+  /** Every `session/request_permission` received, in arrival order; each was
+   * answered with the fail-closed default (a denial toward Hermes). */
+  readonly permissionRequests: readonly RequestPermissionRequest[]
   /** Accumulated `agent_message_chunk` text for one session. */
   agentText(sessionId: string): string
   /** Wait until the accumulated agent text for `sessionId` matches. */
@@ -199,12 +203,16 @@ export async function createSpawnedAgent(options: SpawnedAgentOptions = {}): Pro
   })
 
   const updates: SessionNotification[] = []
+  const permissionRequests: RequestPermissionRequest[] = []
   const clientApp = acp
     .client({ name: E2E_CLIENT_NAME })
     .onNotification(acp.methods.client.session.update, (ctx) => {
       updates.push(ctx.params)
     })
-    .onRequest(acp.methods.client.session.requestPermission, () => FAIL_CLOSED_PERMISSION)
+    .onRequest(acp.methods.client.session.requestPermission, (ctx) => {
+      permissionRequests.push(ctx.params)
+      return FAIL_CLOSED_PERMISSION
+    })
     .onRequest(acp.methods.client.elicitation.create, () => FAIL_CLOSED_ELICITATION)
 
   const connection = clientApp.connect(
@@ -226,6 +234,7 @@ export async function createSpawnedAgent(options: SpawnedAgentOptions = {}): Pro
     child,
     agent: connection.agent,
     updates,
+    permissionRequests,
     agentText,
     async waitForText(sessionId, matches, timeoutMs) {
       return await vi.waitFor(

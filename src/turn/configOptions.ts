@@ -7,7 +7,7 @@
  * `current_mode_update` is worth sending lives on the session record in
  * HermesAcpServer, the same split `mappers.ts` and TurnHandler use.
  *
- * Wire semantics these mappings are pinned to (Hermes 0.20.6, docs/refs.md):
+ * Wire semantics these mappings are pinned to (Hermes 0.21.3, docs/refs.md):
  *   - `config.set {key: "model", value: "<model> --provider <slug>"}` is the
  *     only model switch. There is no `provider` key: the provider rides in the
  *     value's flags (`parse_model_switch_args`, server.py ~11990), which is why
