@@ -22,12 +22,12 @@
     "package": "bun run build && cp dist/index.js dist/hermes-agent-acp && chmod +x dist/hermes-agent-acp && rm -f dist/hermes-agent-acp.zip && zip -j dist/hermes-agent-acp.zip dist/hermes-agent-acp LICENSE NOTICE"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^1.4.0"
+    "@agentclientprotocol/sdk": "^1.5.0"
   },
   "devDependencies": {
-    "@types/node": "^26.1.0",
+    "@types/node": "^26.6.3",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.2"
   }
 }
