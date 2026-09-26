@@ -29,7 +29,9 @@ import type {
   SessionListResult,
   SessionResumeResult,
   TranscriptMessage,
+  Usage,
 } from '../gateway/types.js'
+import { isUsage } from '../gateway/types.js'
 import type { CommandCatalog } from '../turn/commands.js'
 import { buildCommandCatalog, EMPTY_COMMAND_CATALOG } from '../turn/commands.js'
 import type { SessionSettings } from '../turn/configOptions.js'
@@ -106,6 +108,12 @@ export interface SessionRecord {
    * matched against. Empty when the catalog read failed — commands are an
    * enhancement, not a precondition for the session. */
   commands: CommandCatalog
+  /** Hermes' latest running token totals for this session's agent, from the
+   * open/resume snapshot, then every `session.usage`, `session.info` and
+   * `message.complete` (including turns no ACP prompt started). Null until the
+   * agent reports any. A prompt's usage is measured from the value at its
+   * submit. */
+  usageTotals: Usage | null
 }
 
 /**
@@ -676,6 +684,7 @@ async function establishSession(
     settings: provisionalSettings,
     registering: true,
     commands: EMPTY_COMMAND_CATALOG,
+    usageTotals: isUsage(identity.info?.usage) ? identity.info.usage : null,
   }
   store.records.set(identity.storedSessionId, session)
   store.liveIndex.set(identity.gatewaySessionId, identity.storedSessionId)

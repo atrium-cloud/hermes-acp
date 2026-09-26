@@ -60,10 +60,12 @@ import type {
   GatewayServerRequest,
   LazySessionInfo,
   ModelOptionsResult,
+  NoUsage,
   PromptSubmitResult,
   SessionListResult,
+  Usage,
 } from './gateway/types.js'
-import { isFullSessionInfo } from './gateway/types.js'
+import { isFullSessionInfo, isUsage } from './gateway/types.js'
 import type { SessionDirectory } from './session/sessionDirectory.js'
 import type { SessionRecord, SessionStore } from './session/sessionSetup.js'
 import {
@@ -643,6 +645,12 @@ export class HermesAcpServer {
         return { stopReason: 'cancelled' }
       }
 
+      // Taken at the submit, not at the turn's install: staging awaits the
+      // gateway, and every usage frame before the submit belongs to earlier
+      // turns (see promptUsage). One sliver remains: the tail of a turn Hermes
+      // ran on its own that is still in flight during the submit's await is
+      // counted as this turn's.
+      const usageAtSubmit = session.usageTotals
       let submitted: PromptSubmitResult
       try {
         submitted = await this.hermes.promptSubmit({ session_id: session.gatewaySessionId, text: staged.text })
@@ -664,7 +672,7 @@ export class HermesAcpServer {
       const result = await turn.completed()
       switch (result.kind) {
         case 'completed': {
-          const usage = promptUsage(result.usage)
+          const usage = promptUsage(result.usage, usageAtSubmit)
           return usage === undefined ? { stopReason: 'end_turn' } : { stopReason: 'end_turn', usage }
         }
         case 'cancelled':
@@ -925,13 +933,16 @@ export class HermesAcpServer {
       return
     }
     if (event.type === 'session.usage') {
-      const gauge = usageGauge(event.payload?.usage)
-      if (gauge) {
-        session.updates.send(gauge)
-      }
+      this.applyUsage(session, event.payload?.usage)
       return
     }
     if (event.type === 'session.info') {
+      // Totals only, no gauge: after a turn this frame repeats the usage
+      // `message.complete` already reported. It is also the only report of an
+      // agent rebuilt between turns (`tools.configure`), whose totals restart.
+      if (isUsage(event.payload.usage)) {
+        session.usageTotals = event.payload.usage
+      }
       this.applySessionInfo(session, event.payload)
       // Handed to the turn as well: the settled frame (`running: false`) is the
       // only signal that a turn Hermes abandoned after `message.start` is over,
@@ -939,8 +950,30 @@ export class HermesAcpServer {
       session.activeTurn?.handleEvent(event)
       return
     }
+    if (event.type === 'message.complete') {
+      // Hermes stops its once-a-second `session.usage` ticker before this
+      // frame, so it is the only sure report of the turn's final usage; a turn
+      // that makes one model call usually gets no tick at all. When a last tick
+      // did carry the same numbers, the gauge repeats, which is harmless for
+      // an absolute value. Applied here rather than in
+      // TurnHandler so a turn Hermes ran without an ACP prompt still counts,
+      // and queued before the turn settles, the gauge precedes the response.
+      this.applyUsage(session, event.payload?.usage)
+    }
 
     session.activeTurn?.handleEvent(event)
+  }
+
+  /** Record Hermes' running totals and move the client's context gauge. */
+  private applyUsage(session: SessionRecord, usage: Usage | NoUsage | undefined): void {
+    if (!isUsage(usage)) {
+      return
+    }
+    session.usageTotals = usage
+    const gauge = usageGauge(usage)
+    if (gauge) {
+      session.updates.send(gauge)
+    }
   }
 
   /**

@@ -426,22 +426,42 @@ export function usageGauge(usage: Usage | undefined): SessionUpdate | null {
 }
 
 /**
- * ACP `PromptResponse.usage`: a session-cumulative token summary. Hermes'
- * `session_*_tokens` counters are cumulative lifetime totals (verified in
- * `tui_gateway`'s `_get_usage`), which is exactly what the SDK's session-scoped
- * Usage wants. `input`/`output` are the canonical pair — `prompt`/`completion`
- * carry the same numbers under legacy names — and Hermes tracks no cache tokens,
- * so `cachedRead/WriteTokens` are left unset. Undefined usage maps to nothing.
+ * ACP `PromptResponse.usage`: the tokens of one turn (the SDK documents the
+ * field as "Token usage for this turn", and claude-agent-acp and codex-acp both
+ * report per turn). The `Usage` type's own field descriptions still read
+ * cumulatively ("across all turns"); the field's description wins, as the more
+ * specific of the two. Hermes reports only running totals (see Usage), so the
+ * turn's share is `end` minus `start`, the totals last reported before the
+ * submit — null when none were, as an agent not yet built starts from zero.
+ *
+ * Read from `prompt`/`completion`/`total`, the trio with no fallback (total =
+ * prompt + completion), not `input`, which can drop mid-session. The gateway
+ * sends cache counts only as a rounded hit percentage, so `inputTokens`
+ * counts cached and uncached input together and `cachedRead/WriteTokens` stay
+ * unset. Any counter below `start` means Hermes rebuilt the agent during the turn,
+ * which restarts every counter: the one mid-turn rebuild (a "Bot Chat"
+ * capability sync, `_sync_bot_capabilities`) runs at turn start, before any
+ * model call, so `end` alone is the turn's share. Undefined usage maps to
+ * nothing.
  */
-export function promptUsage(usage: Usage | undefined): AcpUsage | undefined {
-  if (usage === undefined) {
+export function promptUsage(end: Usage | undefined, start: Usage | null): AcpUsage | undefined {
+  if (end === undefined) {
     return undefined
   }
+  const rebuilt =
+    start !== null &&
+    (end.calls < start.calls ||
+      end.prompt < start.prompt ||
+      end.completion < start.completion ||
+      end.total < start.total ||
+      end.reasoning < start.reasoning)
+  const since = rebuilt ? null : start
+  const reasoning = end.reasoning - (since?.reasoning ?? 0)
   return {
-    totalTokens: usage.total,
-    inputTokens: usage.input,
-    outputTokens: usage.output,
-    ...(usage.reasoning ? { thoughtTokens: usage.reasoning } : {}),
+    totalTokens: end.total - (since?.total ?? 0),
+    inputTokens: end.prompt - (since?.prompt ?? 0),
+    outputTokens: end.completion - (since?.completion ?? 0),
+    ...(reasoning !== 0 ? { thoughtTokens: reasoning } : {}),
   }
 }
 

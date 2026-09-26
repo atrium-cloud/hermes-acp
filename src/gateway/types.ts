@@ -41,6 +41,10 @@ export interface SessionInfo {
    * `version` it rides the lazy skeleton too. Typed because it is on the
    * wire; this adapter reads neither field (docs/refs.md). */
   readonly desktop_contract: number
+  /** `_session_usage_snapshot`: the agent's running totals, `{}` while the
+   * session has no agent. A resume that reattaches a live session reports
+   * nonzero totals here before this adapter has run a turn. */
+  readonly usage?: Usage | NoUsage
 }
 
 /**
@@ -64,7 +68,14 @@ export function isFullSessionInfo(info: LazySessionInfo): info is SessionInfo {
   return info.lazy !== true && typeof info.model === 'string' && typeof info.provider === 'string'
 }
 
-/** From tui_gateway/server.py `_get_usage` (+ context gauge fields). */
+/**
+ * From tui_gateway/server.py `_get_usage` (+ context gauge fields). The token
+ * counts are running totals over the agent's lifetime (`session_*_tokens`,
+ * accumulated per model call in `agent/turn_usage.py`), restarted whenever the
+ * gateway rebuilds the agent. `prompt` and `total` include cache reads and
+ * writes; `input` excludes them, except that it falls back to `prompt` while
+ * the agent's uncached input is still zero, so it can drop mid-session.
+ */
 export interface Usage {
   readonly model: string
   readonly input: number
@@ -77,6 +88,13 @@ export interface Usage {
   readonly context_used?: number
   readonly context_percent?: number
   readonly context_max?: number
+}
+
+/** The empty usage object reported for a session with no agent. */
+export type NoUsage = Record<string, never>
+
+export function isUsage(usage: Usage | NoUsage | undefined): usage is Usage {
+  return usage !== undefined && 'total' in usage
 }
 
 /** From tools/todo_tool.py VALID_STATUSES — note `cancelled` is a real
@@ -190,7 +208,8 @@ export interface MessageCompleteEvent {
     readonly partial?: boolean
     readonly recoverable?: boolean
     readonly reasoning?: string
-    readonly usage?: Usage
+    /** `{}` on the terminal-error frame of a session with no agent. */
+    readonly usage?: Usage | NoUsage
   }
 }
 
