@@ -8,8 +8,16 @@ import type { ChildProcessLike, WebSocketLike, WebSocketLikeEvent } from '../gat
 
 export const READY_FRAME = { jsonrpc: '2.0', method: 'event', params: { type: 'gateway.ready', payload: {} } }
 
+export const CAPABILITIES_METHOD = 'client.capabilities'
+
 export class FakeWebSocket implements WebSocketLike {
+  /** Frames the client sent, minus the startup handshake. */
   readonly sent: string[] = []
+  /** Params of each `client.capabilities` handshake the client sent. */
+  readonly capabilityHandshakes: unknown[] = []
+  /** Set before the handshake to answer it the way a gateway older than
+   * Hermes 0.21.4 does; null answers like a current one. */
+  capabilitiesError: { readonly code: number; readonly message: string } | null = null
   readyState = 0
   private closedByClient = false
   private readonly listeners = new Map<string, Set<(event: WebSocketLikeEvent) => void>>()
@@ -29,6 +37,19 @@ export class FakeWebSocket implements WebSocketLike {
   }
 
   send(data: string): void {
+    const frame = JSON.parse(data) as { id?: unknown; method?: unknown; params?: unknown }
+    if (frame.method === CAPABILITIES_METHOD) {
+      // The gateway's side of the startup handshake, answered here so every
+      // test starts from a connected client and `sent` holds only its own
+      // traffic.
+      this.capabilityHandshakes.push(frame.params)
+      const answer =
+        this.capabilitiesError === null
+          ? { jsonrpc: '2.0', id: frame.id, result: { server_requests: ['approval', 'clarify'] } }
+          : { jsonrpc: '2.0', id: frame.id, error: this.capabilitiesError }
+      queueMicrotask(() => this.serverSend(answer))
+      return
+    }
     this.sent.push(data)
   }
 

@@ -6,7 +6,7 @@
  * a release-tarball download) is network-heavy enough to hang for minutes on a
  * home connection. This orchestrator runs the whole tier in a throwaway sprite
  * with datacenter bandwidth: create a fresh sprite, sync the working tree in,
- * build, install the pinned Hermes, run the e2e suite, pull the results, and
+ * build, install the Hermes release under test, run the e2e suite, pull the results, and
  * destroy the sprite — recording evidence at every step, including the steps
  * that FAIL, so a run that dies at the Hermes install is itself proof of what
  * does not work.
@@ -24,7 +24,7 @@
  * repo, a file, or the remote command echo.
  *
  * Usage:
- *   bun run test:e2e:sprite                 # against the docs/refs.md pin
+ *   bun run test:e2e:sprite                 # against the docs/refs.md verified release
  *   bun run test:e2e:sprite -- --tag v2026.9.11
  *   bun run test:e2e:sprite -- --keep       # leave the sprite up for debugging
  */
@@ -51,10 +51,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HERMES_REPO = 'NousResearch/hermes-agent'
 const REFS_PATH = 'docs/refs.md'
-// The single source of truth for the default tag is the docs/refs.md pin line;
-// this regex is a local copy of the one in scripts/check-hermes-drift.ts (kept
-// in sync by hand) that reads that same line.
-const REFS_PIN_PATTERN = /Pinned reference: Hermes ([0-9][\w.-]*) \(tag `([^`]+)`\)/
+// The single source of truth for the default tag is the docs/refs.md
+// "Verified against" line; this regex is a local copy of the one in
+// scripts/check-hermes-drift.ts (kept in sync by hand) that reads that same line.
+const REFS_VERIFIED_PATTERN = /Verified against: Hermes ([0-9][\w.-]*) \(tag `([^`]+)`\)/
 
 // The variable NAME, never a value — the pre-commit secret scan cannot tell
 // the difference, hence the marker.
@@ -204,12 +204,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   return { tag, keep }
 }
 
-/** The tag the drift checker pins in docs/refs.md, so the default target tracks
+/** The release docs/refs.md records as verified, so the default target tracks
  * a single source of truth rather than a second hardcoded version. */
-export function resolvePinTag(refsSource: string): string {
-  const match = REFS_PIN_PATTERN.exec(refsSource)
+export function resolveVerifiedTag(refsSource: string): string {
+  const match = REFS_VERIFIED_PATTERN.exec(refsSource)
   if (!match?.[2]) {
-    throw new Error(`e2e-sprite: could not read the Hermes pin tag from ${REFS_PATH}`)
+    throw new Error(`e2e-sprite: could not read the verified Hermes tag from ${REFS_PATH}`)
   }
   return match[2]
 }
@@ -624,7 +624,7 @@ async function main(): Promise<void> {
   }
   secrets.push(key.value)
 
-  const tag = options.tag ?? resolvePinTag(readFileSync(join(REPO_ROOT, REFS_PATH), 'utf8'))
+  const tag = options.tag ?? resolveVerifiedTag(readFileSync(join(REPO_ROOT, REFS_PATH), 'utf8'))
   spriteName = `hermes-acp-e2e-${randomBytes(4).toString('hex')}`
 
   const startedAt = new Date()

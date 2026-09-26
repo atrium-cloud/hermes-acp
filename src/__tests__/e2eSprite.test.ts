@@ -9,7 +9,7 @@ import {
   overallVerdict,
   parseArgs,
   parseProviderKeyLine,
-  resolvePinTag,
+  resolveVerifiedTag,
   scrubSecrets,
   summarizeTests,
   testsPassed,
@@ -51,14 +51,15 @@ describe('parseProviderKeyLine', () => {
   })
 })
 
-describe('resolvePinTag', () => {
-  it('extracts the tag from the docs/refs.md pin line', () => {
-    const refs = 'blah\n- Pinned reference: Hermes 0.20.6 (tag `v2026.8.27`), the version...\nmore'
-    expect(resolvePinTag(refs)).toBe('v2026.8.27')
+describe('resolveVerifiedTag', () => {
+  it('extracts the tag from the docs/refs.md verified line, not the floor line', () => {
+    const refs =
+      'blah\n- Floor: Hermes 0.20.5 (tag `v2026.8.19`), the oldest...\n- Verified against: Hermes 0.20.6 (tag `v2026.8.27`), the release...\nmore'
+    expect(resolveVerifiedTag(refs)).toBe('v2026.8.27')
   })
 
-  it('fails fast when the pin line is absent', () => {
-    expect(() => resolvePinTag('no pin here')).toThrow(/pin tag/)
+  it('fails fast when the verified line is absent', () => {
+    expect(() => resolveVerifiedTag('no verified release here')).toThrow(/verified Hermes tag/)
   })
 })
 

@@ -572,7 +572,7 @@ describe('session/prompt', () => {
       emitAll(fixture.gateway, [
         { type: 'message.start', session_id: SESSION_ID },
         { type: 'error', session_id: SESSION_ID, payload: { message: 'tool timing skew' } },
-        // The frame a mid-turn model switch emits (server.py ~6171): still
+        // The frame a mid-turn model switch emits: still
         // running, so it must not turn the diagnostic above into an ending.
         { type: 'session.info', session_id: SESSION_ID, payload: sessionInfo(true) },
         { type: 'message.delta', session_id: SESSION_ID, payload: { text: 'still here' } },

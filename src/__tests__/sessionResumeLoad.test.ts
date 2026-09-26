@@ -53,7 +53,7 @@ async function waitForGatewayCall(gateway: ScriptedGateway, method: GatewayReque
 }
 
 /**
- * The pinned `_lazy_resume_info` shape (server.py ~8356): cwd, model, empty
+ * The `_lazy_resume_info` shape (server.py): cwd, model, empty
  * tools/skills, the lazy flag — and NO title, which is why a fresh load reads
  * the title off session.list instead of the resume response's info.
  */

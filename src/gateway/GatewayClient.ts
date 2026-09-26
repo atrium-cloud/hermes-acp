@@ -14,6 +14,7 @@ import {
   GATEWAY_MODE_ATTACH,
   GATEWAY_MODE_SERVE,
   GATEWAY_WS_PATH,
+  HERMES_MIN_VERSION,
   KILL_GRACE_MS,
   SERVE_AUTO_PORT,
   SERVE_HOST,
@@ -26,6 +27,7 @@ import { expandHome } from './options.js'
 import {
   isKnownGatewayEventType,
   isKnownServerRequestMethod,
+  type ClientCapabilitiesParams,
   type GatewayEvent,
   type GatewayServerRequest,
 } from './types.js'
@@ -55,7 +57,8 @@ const WS_READY_STATE_OPEN = 1
 const WS_CLOSE_UNAUTHORIZED = 4401
 // JSON-RPC 2.0 error codes sent back on a server→client request this adapter
 // will not answer: a method it does not implement, and a known method whose
-// params are not the object its contract pins.
+// params are not the object its contract pins. The gateway answers an unknown
+// method of ours with the same method-not-found code.
 const JSON_RPC_METHOD_NOT_FOUND = -32601
 const JSON_RPC_INVALID_PARAMS = -32602
 
@@ -92,8 +95,8 @@ const redactTokenInUrl = (url: string): string => url.replace(/([?&]token=)[^&]*
  * returns to the blocked tool at once instead of after its timeout.
  *
  * Lifecycle: `start()` resolves once the gateway's `gateway.ready` event has
- * been observed (or rejects with the child's stderr tail if it dies or
- * stalls). `kill()` tears the transport down: close for the socket, SIGTERM
+ * been observed and the `client.capabilities` handshake answered (or rejects
+ * with the child's stderr tail if it dies or stalls). `kill()` tears the transport down: close for the socket, SIGTERM
  * then SIGKILL for the managed `hermes serve` child.
  */
 export class GatewayClient {
@@ -122,6 +125,9 @@ export class GatewayClient {
   private killed = false
   private transportClosed = false
   private sawReady = false
+  /** Set once `start()` has resolved; transport loss before that is a
+   * startup failure, reported through `start()` rather than `onExit`. */
+  private startupComplete = false
   private readyGate: Promise<void> | null = null
   private readyResolve: (() => void) | null = null
   private readyReject: ((error: Error) => void) | null = null
@@ -215,13 +221,42 @@ export class GatewayClient {
       this.readyTimer.unref()
     })
 
+    // The capability handshake is part of startup: it rides the same deadline
+    // and a failure there fails `start()`.
+    const startup = setup.then(() => this.advertiseServerRequests())
+    startup.catch(() => {})
+
     try {
-      await Promise.race([setup, deadline])
+      await Promise.race([startup, deadline])
+      this.startupComplete = true
     } catch (error) {
       await this.kill(`startup failed: ${toError(error).message}`)
       throw error
     } finally {
       this.clearReadyTimer()
+    }
+  }
+
+  /**
+   * Tell the gateway this connection answers server→client requests. Since
+   * Hermes 0.21.4 a WebSocket client that never says so has every such request
+   * (approval, clarify, …) failed on the spot without the frame being sent
+   * (`tui_gateway/server_requests.py` `_unanswerable`), so the user is never
+   * asked. A gateway without the method predates the supported floor.
+   */
+  private async advertiseServerRequests(): Promise<void> {
+    try {
+      // No type arguments: `bun run drift` finds consumed methods by the
+      // literal `request('…'` spelling. The result (ClientCapabilitiesResult)
+      // is unread.
+      await this.request('client.capabilities', { server_requests: true } satisfies ClientCapabilitiesParams)
+    } catch (error) {
+      if (error instanceof GatewayRpcError && error.code === JSON_RPC_METHOD_NOT_FOUND) {
+        throw new Error(
+          `gateway method client.capabilities does not exist on this Hermes; Hermes ${HERMES_MIN_VERSION} or newer is required`,
+        )
+      }
+      throw new Error(`gateway method client.capabilities failed: ${toError(error).message}`)
     }
   }
 
@@ -687,7 +722,7 @@ export class GatewayClient {
       // Socket already gone; teardown is best-effort.
     }
 
-    if (this.sawReady) {
+    if (this.startupComplete) {
       for (const handler of this.exitHandlers) {
         try {
           handler(code)

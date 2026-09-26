@@ -9,7 +9,9 @@
  * diffs them against the subset this adapter consumes. Missing names are
  * breaking (exit 1); new upstream events are informational. For every name we
  * depend on it prints the upstream definition sites, so the hand-verification
- * pass of a version bump starts from a worklist instead of a cold grep.
+ * pass of a version bump starts from a worklist instead of a cold grep. Names
+ * say nothing about protocol behavior: 0.21.4's `client.capabilities`
+ * handshake passed this check clean and only the live e2e tier caught it.
  *
  * Usage:
  *   bun run drift                 # check against the latest GitHub release
@@ -34,7 +36,9 @@ const GATEWAY_DIR = 'tui_gateway'
 const PYPROJECT_FILE = 'pyproject.toml'
 
 const TYPES_PATH = 'src/gateway/types.ts'
-const CLIENT_PATH = 'src/gateway/HermesGatewayClient.ts'
+// The typed wrappers, plus the transport for the startup handshake it sends
+// itself (`client.capabilities`).
+export const CLIENT_PATHS = ['src/gateway/HermesGatewayClient.ts', 'src/gateway/GatewayClient.ts']
 const REFS_PATH = 'docs/refs.md'
 
 // Upstream extraction patterns (Python source).
@@ -77,7 +81,7 @@ const KNOWN_SERVER_REQUESTS_BLOCK_PATTERN = /const KNOWN_SERVER_REQUEST_METHODS[
 const KNOWN_EVENT_KEY_PATTERN = /^\s*(?:'([a-z0-9._-]+)'|([a-z][a-zA-Z0-9]*)):\s*true,?\s*$/gm
 const REQUEST_CALL_PATTERN = /request\(\s*'([a-z0-9._-]+)'/g
 const PYPROJECT_VERSION_PATTERN = /^version\s*=\s*"([^"]+)"/m
-const REFS_PIN_PATTERN = /Pinned reference: Hermes ([0-9][\w.-]*) \(tag `([^`]+)`\)/
+const REFS_VERIFIED_PATTERN = /Verified against: Hermes ([0-9][\w.-]*) \(tag `([^`]+)`\)/
 
 // ── Extraction (pure, tested) ───────────────────────────────────────────────
 
@@ -183,7 +187,7 @@ export function extractOurServerRequestMethods(typesSource: string): readonly st
 export function extractOurMethods(clientSource: string): readonly string[] {
   const names = [...clientSource.matchAll(REQUEST_CALL_PATTERN)].map((match) => match[1] as string)
   if (names.length === 0) {
-    throw new Error(`drift check: no gateway.request calls parsed from ${CLIENT_PATH}`)
+    throw new Error(`drift check: no gateway.request calls parsed from ${CLIENT_PATHS.join(', ')}`)
   }
   return [...new Set(names)]
 }
@@ -333,15 +337,17 @@ async function main(): Promise<void> {
     const typesSource = readFileSync(TYPES_PATH, 'utf8')
     const ourEvents = extractOurEventTypes(typesSource)
     const ourServerRequests = extractOurServerRequestMethods(typesSource)
-    const ourMethods = extractOurMethods(readFileSync(CLIENT_PATH, 'utf8'))
+    const ourMethods = extractOurMethods(CLIENT_PATHS.map((path) => readFileSync(path, 'utf8')).join('\n'))
     const report = diffSurfaces(upstream, ourMethods, ourEvents, ourServerRequests)
 
     const upstreamVersion = PYPROJECT_VERSION_PATTERN.exec(
       readFileSync(join(hermesRoot, PYPROJECT_FILE), 'utf8'),
     )?.[1]
-    const pin = REFS_PIN_PATTERN.exec(readFileSync(REFS_PATH, 'utf8'))
+    const verified = REFS_VERIFIED_PATTERN.exec(readFileSync(REFS_PATH, 'utf8'))
     console.log(`target: ${targetLabel} (version ${upstreamVersion ?? 'unknown'})`)
-    console.log(`pinned: ${pin ? `${pin[1]} (tag ${pin[2]})` : `no pin found in ${REFS_PATH}`}`)
+    console.log(
+      `verified: ${verified ? `${verified[1]} (tag ${verified[2]})` : `no verified release found in ${REFS_PATH}`}`,
+    )
 
     if (report.missingMethods.length > 0) {
       console.log('\nBREAKING — gateway methods we call that no longer exist upstream:')
@@ -385,10 +391,12 @@ async function main(): Promise<void> {
     }
 
     if (report.breaking) {
-      console.log('\nresult: BREAKING drift — update src/gateway/types.ts and the pin in docs/refs.md')
+      console.log('\nresult: BREAKING drift — update src/gateway/types.ts and the verified release in docs/refs.md')
       process.exitCode = 1
     } else {
-      console.log('\nresult: no breaking drift; hand-verify payload shapes before moving the pin')
+      console.log(
+        '\nresult: no breaking drift; hand-verify payload shapes and run the live e2e tier before moving the verified release',
+      )
     }
   } finally {
     if (cleanupDir) {

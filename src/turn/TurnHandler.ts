@@ -6,7 +6,7 @@
  * asked to cancel, and the ordering of the `session/update` notifications it
  * emits. Translation itself is delegated to `mappers.ts`.
  *
- * Turn boundary (verified against Hermes 0.21.3): `prompt.submit` returns as
+ * Turn boundary (verified against Hermes 0.21.5): `prompt.submit` returns as
  * soon as the turn is streaming, and a turn that reaches the model ends with
  * exactly one `message.complete` carrying a `status`. Every emit site for our
  * session (`tui_gateway/server.py` _run_prompt_submit, _emit_terminal_turn_error,
@@ -310,8 +310,9 @@ export class TurnHandler {
         // Also session-scoped — the server has already applied it to the
         // session's mode and config options, and this case emits nothing. It is
         // routed here for the one thing no other event reports: `running: false`
-        // means the turn thread has run its `finally` (server.py ~13047, then
-        // `_emit_settled_session_info` ~13081), so no `message.complete` is
+        // means the turn thread has run its `finally` (the turn body in
+        // prompt_turn.py, then `_emit_settled_session_info` in
+        // session_workdir.py), so no `message.complete` is
         // coming. Paired with an error seen since `message.start`, that error
         // was the turn's ending after all. It cannot promote a diagnostic:
         // `session["running"]` stays true for the whole turn body, so every
@@ -405,7 +406,7 @@ export class TurnHandler {
         return
     }
 
-    // Unreachable while MessageCompleteStatus matches the pinned Hermes: the
+    // Unreachable while MessageCompleteStatus matches the verified Hermes: the
     // `satisfies never` makes a new upstream status a compile error here, and
     // settling anyway keeps an unknown one from hanging the prompt forever.
     this.settle({

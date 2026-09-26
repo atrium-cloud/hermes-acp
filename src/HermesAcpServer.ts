@@ -445,7 +445,7 @@ export class HermesAcpServer {
     }
 
     if (result.deferred === true) {
-      // A queued pick emits no `session.info` of its own (server.py ~11978), so
+      // A queued pick emits no `session.info` of its own (methods_config_set.py), so
       // this is the only place the record can learn about it. Later
       // `session.info` frames report the pending pick as current, which now
       // matches and stays silent instead of announcing it a second time.

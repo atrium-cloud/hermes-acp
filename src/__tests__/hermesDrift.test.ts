@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
+  CLIENT_PATHS,
   diffSurfaces,
   extractOurEventTypes,
   extractOurMethods,
@@ -187,10 +188,11 @@ describe('against the real adapter sources', () => {
     expect(extractOurServerRequestMethods(typesSource)).toEqual(['approval', 'clarify'])
   })
 
-  it('parses the actual HermesGatewayClient method usage', () => {
-    const methods = extractOurMethods(readFileSync(resolve(repoRoot, 'src/gateway/HermesGatewayClient.ts'), 'utf8'))
+  it('parses the actual gateway client method usage, including the startup handshake', () => {
+    const methods = extractOurMethods(CLIENT_PATHS.map((path) => readFileSync(resolve(repoRoot, path), 'utf8')).join('\n'))
     expect(methods).toContain('session.create')
     expect(methods).toContain('prompt.submit')
+    expect(methods).toContain('client.capabilities')
     expect(methods.length).toBeGreaterThanOrEqual(15)
   })
 })

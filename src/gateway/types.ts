@@ -3,8 +3,9 @@
  *
  * Hand-written from the Hermes source (tui_gateway/server.py,
  * methods_prompt.py, methods_session.py, methods_config.py,
- * methods_complete.py, methods_tools.py) and pinned to Hermes 0.21.3
- * (tag v2026.9.14; see docs/refs.md). There is no codegen: this file is the
+ * methods_complete.py, methods_tools.py) and last verified against Hermes
+ * 0.21.5 (tag v2026.9.24; the floor and verified release live in
+ * docs/refs.md). There is no codegen: this file is the
  * compile-time tripwire — every Hermes bump must re-verify these shapes
  * against upstream (docs/todos.md "Known limits").
  *
@@ -32,11 +33,11 @@ export interface SessionInfo {
   readonly turn_started_at: number | null
   /** `hermes_cli.__version__`, or `""` when that import failed — upstream
    * seeds both version fields empty and swallows the ImportError
-   * (server.py ~5770). The gateway has no version method, so this is the only
+   * (`_session_info`, server.py). The gateway has no version method, so this is the only
    * place a Hermes version is reported at all. */
   readonly version: string
   readonly release_date: string
-  /** `DESKTOP_BACKEND_CONTRACT` (7 on the reference build, server.py 2025):
+  /** `DESKTOP_BACKEND_CONTRACT` (8 on the verified release, server.py):
    * the capability count Hermes' own desktop client gates on. Unlike
    * `version` it rides the lazy skeleton too. Typed because it is on the
    * wire; this adapter reads neither field (docs/refs.md). */
@@ -49,7 +50,7 @@ export interface SessionInfo {
 
 /**
  * The info snapshot `session.create`/`session.resume` return for a session
- * whose agent is not built yet: `_lazy_resume_info` (server.py ~8356) carries
+ * whose agent is not built yet: `_lazy_resume_info` (server.py) carries
  * cwd, branch, project, model, empty tools/skills, `lazy: true`, and provider
  * only when the stored session overrode it — none of the runtime fields the
  * full `session.info` event reports, and no title (a stored session's title
@@ -59,7 +60,7 @@ export type LazySessionInfo = Partial<SessionInfo> & { readonly lazy?: boolean }
 
 /**
  * Whether a `session.info` frame is the full `_session_info` record. One emit
- * site sends a skeleton instead — `_apply_project_workspace` (server.py ~7894)
+ * site sends a skeleton instead — `_apply_project_workspace` (agent_callbacks.py)
  * emits `{cwd, branch, project, lazy: true}` when the agent's own `project_*`
  * tools move the workspace before the agent is built — and that frame carries
  * no settings to apply.
@@ -109,7 +110,7 @@ export interface TodoItem {
 }
 
 /** Transcript row shape shared by create/resume/branch/history responses —
- * the `_history_to_messages` projection (server.py ~7669). Rows with
+ * the `_history_to_messages` projection (session_history.py). Rows with
  * `display_kind: "hidden"` are already filtered upstream; any other
  * `display_kind` marks a metadata row (model_switch, auto_continue, …), not
  * user/agent content. */
@@ -147,8 +148,8 @@ export interface GatewayReadyEvent {
 
 /**
  * `running: false` on a full record is a turn's settled bookend: the turn
- * thread's `finally` clears the flag (server.py ~13047) before
- * `_emit_settled_session_info` (~13081) emits this, so nothing further is
+ * thread's `finally` clears the flag (the turn body in prompt_turn.py) before
+ * `_emit_settled_session_info` (session_workdir.py) emits this, so nothing further is
  * coming for that turn. It is the only such marker on the paths that return out
  * of the turn body without a `message.complete` (see GatewayErrorEvent).
  */
@@ -413,6 +414,19 @@ export function isKnownServerRequestMethod(method: string): method is GatewaySer
 
 // ── Method params and results ───────────────────────────────────────────────
 
+/** `client.capabilities` (tui_gateway/methods_voice.py, since 0.21.4): marks
+ * the calling connection as one that answers server→client requests. */
+export interface ClientCapabilitiesParams {
+  readonly server_requests: boolean
+}
+
+/** The server→client request methods the gateway may send (its contract
+ * registry); unread, as every method outside this adapter's handlers is
+ * refused on the wire anyway. */
+export interface ClientCapabilitiesResult {
+  readonly server_requests: readonly string[]
+}
+
 export interface SessionCreateParams {
   readonly session_id?: string
   readonly cwd?: string
@@ -671,7 +685,7 @@ export interface ConfigSetParams {
   readonly value: string
   readonly session_id?: string
   /** `yolo` honors "session" (this session only) and "global" (config.yaml);
-   * the model and approval_mode keys ignore it (server.py ~12234). */
+   * the model and approval_mode keys ignore it (methods_config_set.py). */
   readonly scope?: string
   readonly confirm_expensive_model?: boolean
 }
@@ -682,7 +696,7 @@ export interface ConfigSetResult {
   /** True when a mid-turn model switch is queued for the next turn start. */
   readonly deferred?: boolean
   /** Expensive-model gate: the pick was NOT applied and has to be re-sent with
-   * `confirm_expensive_model: true` (server.py ~12024). */
+   * `confirm_expensive_model: true` (methods_config_set.py). */
   readonly confirm_required?: boolean
   readonly confirm_message?: string
   readonly warning?: string

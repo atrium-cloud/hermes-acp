@@ -50,7 +50,7 @@ const CUSTOM_LANE_CATALOG: ModelOptionsResult = {
   ],
 }
 
-/** tui_gateway rejects an unknown model id under this code (server.py ~12030). */
+/** tui_gateway rejects an unknown model id under this code (methods_config_set.py). */
 const BOGUS_MODEL_MESSAGE = "unknown model 'not-a-model'; run /model to list available models"
 const BOGUS_MODEL_CODE = 5001
 
@@ -702,7 +702,7 @@ describe('session.info skeleton', () => {
       const before = fixture.server.session(STORED_SESSION_ID)?.settings
 
       // `_apply_project_workspace` emits only {cwd, branch, project, lazy}
-      // before the agent is built (server.py ~7894).
+      // before the agent is built (`_apply_project_workspace`, agent_callbacks.py).
       fixture.gateway.emit({
         type: 'session.info',
         session_id: SESSION_ID,
