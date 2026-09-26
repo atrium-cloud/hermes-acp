@@ -155,10 +155,23 @@ describe('session/prompt', () => {
           },
         },
         { type: 'session.title', session_id: SESSION_ID, payload: { title: 'Repo summary' } },
-        { type: 'message.complete', session_id: SESSION_ID, payload: { text: 'The repo is an adapter.', status: 'complete' } },
+        {
+          type: 'message.complete',
+          session_id: SESSION_ID,
+          payload: {
+            text: 'The repo is an adapter.',
+            status: 'complete',
+            usage: { model: 'hermes', input: 30, output: 12, reasoning: 4, prompt: 30, completion: 12, total: 42, calls: 2 },
+          },
+        },
       ])
 
-      expect(await response).toEqual({ stopReason: 'end_turn' })
+      // A fresh session has no totals before its first turn, so the turn's
+      // share is the final snapshot as-is; the mid-turn tick moves no baseline.
+      expect(await response).toEqual({
+        stopReason: 'end_turn',
+        usage: { totalTokens: 42, inputTokens: 30, outputTokens: 12, thoughtTokens: 4 },
+      })
 
       expect(fixture.transcript().map((entry) => entry.params)).toEqual([
         { sessionId: STORED_SESSION_ID, update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'planning' } } },
@@ -197,15 +210,48 @@ describe('session/prompt', () => {
     }
   })
 
-  it('reports session-cumulative token usage on the completed turn', async () => {
+  it("reports each turn's own token usage and its final context gauge", async () => {
     const fixture = createAcpTestFixture()
     try {
-      await openSession(fixture)
-      const { response } = await startPrompt(fixture)
+      // Hermes reports running totals. The open snapshot already carries some,
+      // as a resume that reattaches a live agent does.
+      fixture.gateway.setResult('sessionCreate', {
+        session_id: SESSION_ID,
+        stored_session_id: STORED_SESSION_ID,
+        info: { usage: { model: 'hermes', input: 20, output: 5, reasoning: 0, prompt: 20, completion: 5, total: 25, calls: 1 } },
+      })
+      scriptSessionSettings(fixture.gateway)
+      await fixture.client.request(acp.methods.agent.session.new, { cwd: TEST_CWD, mcpServers: [] })
+      fixture.gateway.clearRecordedCalls()
 
-      // message.complete carries Hermes' cumulative session_*_tokens snapshot;
-      // input/output are the canonical pair (prompt/completion are the same
-      // numbers), and there are no cache-token fields to map.
+      // `input` still falls back to `prompt` here (no uncached input yet) and
+      // drops next turn; the share reads `prompt`, which never drops.
+      const first = await startPrompt(fixture)
+      fixture.gateway.emit({
+        type: 'message.complete',
+        session_id: SESSION_ID,
+        payload: {
+          status: 'complete',
+          usage: { model: 'hermes', input: 150, output: 50, reasoning: 8, prompt: 150, completion: 50, total: 200, calls: 3 },
+        },
+      })
+      expect(await first.response).toEqual({
+        stopReason: 'end_turn',
+        usage: { totalTokens: 175, inputTokens: 130, outputTokens: 45, thoughtTokens: 8 },
+      })
+
+      // A tick from a turn Hermes ran on its own moves the next baseline.
+      fixture.gateway.emit({
+        type: 'session.usage',
+        session_id: SESSION_ID,
+        payload: { usage: { model: 'hermes', input: 40, output: 55, reasoning: 8, prompt: 170, completion: 55, total: 225, calls: 4 } },
+      })
+
+      // No `session.usage` tick came, as for any turn making one model call:
+      // the final frame alone moves the gauge, ahead of the response.
+      fixture.gateway.clearRecordedCalls()
+      fixture.clearTranscript()
+      const second = await startPrompt(fixture)
       emitAll(fixture.gateway, [
         { type: 'message.delta', session_id: SESSION_ID, payload: { text: 'done' } },
         {
@@ -214,14 +260,70 @@ describe('session/prompt', () => {
           payload: {
             text: 'done',
             status: 'complete',
-            usage: { model: 'hermes', input: 120, output: 45, reasoning: 8, prompt: 120, completion: 45, total: 165, calls: 3 },
+            usage: {
+              model: 'hermes',
+              input: 40,
+              output: 70,
+              reasoning: 8,
+              prompt: 330,
+              completion: 70,
+              total: 400,
+              calls: 5,
+              context_used: 12013,
+              context_max: 1310720,
+            },
           },
         },
       ])
-
-      expect(await response).toEqual({
+      expect(await second.response).toEqual({
         stopReason: 'end_turn',
-        usage: { totalTokens: 165, inputTokens: 120, outputTokens: 45, thoughtTokens: 8 },
+        usage: { totalTokens: 175, inputTokens: 160, outputTokens: 15 },
+      })
+      expect(fixture.transcript().map((entry) => entry.params)).toEqual([
+        { sessionId: STORED_SESSION_ID, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'done' } } },
+        { sessionId: STORED_SESSION_ID, update: { sessionUpdate: 'usage_update', used: 12013, size: 1310720 } },
+      ])
+
+      // A rebuild between turns (`tools.configure`) restarts the totals, and
+      // its `session.info` is the only report of that.
+      fixture.gateway.emit({
+        type: 'session.info',
+        session_id: SESSION_ID,
+        payload: {
+          ...sessionInfo(false),
+          usage: { model: 'hermes', input: 0, output: 0, reasoning: 0, prompt: 0, completion: 0, total: 0, calls: 0 },
+        },
+      })
+      fixture.gateway.clearRecordedCalls()
+      const third = await startPrompt(fixture)
+      fixture.gateway.emit({
+        type: 'message.complete',
+        session_id: SESSION_ID,
+        payload: {
+          status: 'complete',
+          usage: { model: 'hermes', input: 480, output: 100, reasoning: 0, prompt: 500, completion: 100, total: 600, calls: 5 },
+        },
+      })
+      expect(await third.response).toEqual({
+        stopReason: 'end_turn',
+        usage: { totalTokens: 600, inputTokens: 500, outputTokens: 100 },
+      })
+
+      // A rebuild at turn start ("Bot Chat" capability sync) sends no totals
+      // first; lower totals at the end mean the end snapshot is all this turn's.
+      fixture.gateway.clearRecordedCalls()
+      const fourth = await startPrompt(fixture)
+      fixture.gateway.emit({
+        type: 'message.complete',
+        session_id: SESSION_ID,
+        payload: {
+          status: 'complete',
+          usage: { model: 'hermes', input: 30, output: 5, reasoning: 0, prompt: 30, completion: 5, total: 35, calls: 1 },
+        },
+      })
+      expect(await fourth.response).toEqual({
+        stopReason: 'end_turn',
+        usage: { totalTokens: 35, inputTokens: 30, outputTokens: 5 },
       })
     } finally {
       fixture.close()
@@ -237,7 +339,8 @@ describe('session/prompt', () => {
       fixture.gateway.emit({
         type: 'message.complete',
         session_id: SESSION_ID,
-        payload: { text: 'Error: provider rejected the request', status: 'error', error: 'provider 402: payment required' },
+        // `{}` is the usage a session with no agent reports on this frame.
+        payload: { text: 'Error: provider rejected the request', status: 'error', error: 'provider 402: payment required', usage: {} },
       })
 
       await expect(pending).rejects.toMatchObject({
@@ -245,6 +348,7 @@ describe('session/prompt', () => {
         message: expect.stringContaining('Hermes turn failed: provider 402: payment required'),
       })
       expect(fixture.server.session(STORED_SESSION_ID)?.activeTurn).toBeNull()
+      expect(fixture.server.session(STORED_SESSION_ID)?.usageTotals).toBeNull()
     } finally {
       fixture.close()
     }

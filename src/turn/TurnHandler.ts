@@ -33,10 +33,12 @@ import type {
   GatewayEvent,
   GatewayServerRequest,
   MessageCompleteStatus,
+  NoUsage,
   RequestCancelEvent,
   TodoItem,
   Usage,
 } from '../gateway/types.js'
+import { isUsage } from '../gateway/types.js'
 import {
   agentMessageChunk,
   agentThoughtChunk,
@@ -376,7 +378,7 @@ export class TurnHandler {
   private settleFromTerminalFrame(
     status: MessageCompleteStatus | undefined,
     error: string | undefined,
-    usage: Usage | undefined,
+    usage: Usage | NoUsage | undefined,
   ): void {
     if (status === undefined) {
       this.settle({
@@ -393,7 +395,7 @@ export class TurnHandler {
 
     switch (status) {
       case 'complete':
-        this.settle({ kind: 'completed', ...(usage !== undefined ? { usage } : {}) })
+        this.settle({ kind: 'completed', ...(isUsage(usage) ? { usage } : {}) })
         return
       case 'interrupted':
         this.settle({ kind: 'cancelled' })

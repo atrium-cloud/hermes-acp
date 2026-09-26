@@ -131,6 +131,17 @@ describeE2E('hermes live turns', () => {
 
       expect(response.stopReason).toBe('end_turn')
       expect(fixture.agentText(sessionId)).toContain(ECHO_MARKER)
+      // Read from Hermes' prompt/completion/total trio, whose total is exactly
+      // the sum however much of the prompt was cached.
+      expect(response.usage?.totalTokens).toBeGreaterThan(0)
+      expect(response.usage?.totalTokens).toBe((response.usage?.inputTokens ?? 0) + (response.usage?.outputTokens ?? 0))
+      // A one-call turn gets no `session.usage` tick upstream, so the gauge
+      // rests on `message.complete` alone, delivered ahead of the response.
+      expect(
+        fixture.updates.some(
+          (notification) => notification.sessionId === sessionId && notification.update.sessionUpdate === 'usage_update',
+        ),
+      ).toBe(true)
     },
     E2E_BOOT_AND_TURN_TIMEOUT_MS,
   )
