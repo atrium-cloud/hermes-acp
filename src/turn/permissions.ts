@@ -7,7 +7,7 @@
  * round-trip state — which requests are still unanswered, which tool call an
  * approval belongs to, whether the turn ended first — lives on TurnHandler.
  *
- * Wire semantics both mappings are pinned to (Hermes 0.21.3, see docs/refs.md):
+ * Wire semantics both mappings are verified against (Hermes 0.21.5, see docs/refs.md):
  *   - the `approval` response's `choice` is relayed verbatim to
  *     `resolve_gateway_approval` (tools/approval.py), and the approval gate
  *     blocks only on the literal "deny": every other resolved choice approves

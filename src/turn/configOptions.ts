@@ -7,17 +7,17 @@
  * `current_mode_update` is worth sending lives on the session record in
  * HermesAcpServer, the same split `mappers.ts` and TurnHandler use.
  *
- * Wire semantics these mappings are pinned to (Hermes 0.21.3, docs/refs.md):
+ * Wire semantics these mappings are verified against (Hermes 0.21.5, docs/refs.md):
  *   - `config.set {key: "model", value: "<model> --provider <slug>"}` is the
  *     only model switch. There is no `provider` key: the provider rides in the
- *     value's flags (`parse_model_switch_args`, server.py ~11990), which is why
+ *     value's flags (`parse_model_switch_args`, hermes_cli/model_switch.py), which is why
  *     a value id has to carry both halves and reverse cleanly.
  *   - `config.set {key: "yolo", value: "on"|"off", scope: "session"}` toggles
  *     only this session's approval bypass and re-emits `session.info`
- *     (server.py ~12234).
+ *     (`_set_yolo`, methods_config_set.py).
  *   - `config.set {key: "approval_mode", value: "manual"|"smart"|"off"}` writes
  *     config.yaml and re-emits `session.info` to EVERY live session
- *     (server.py ~12218) — global, and labelled as such.
+ *     (`_set_approval_mode`, methods_config_set.py) — global, and labelled as such.
  */
 
 import type {

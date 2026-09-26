@@ -6,9 +6,10 @@
  * plan was last sent, whether the turn was cancelled) lives in TurnHandler.
  *
  * The tool-name → ToolKind table and the tool-failure heuristic are ported
- * from Hermes' own ACP adapter (`acp_adapter/tools.py`, pinned Hermes 0.21.3)
- * so both adapters classify the same tool the same way. Every name in the
- * table was re-verified against the tool registry in the pinned snapshot.
+ * from Hermes' own ACP adapter (`acp_adapter/tools.py`, table and heuristic
+ * unchanged through Hermes 0.21.5) so both adapters classify the same tool the
+ * same way. Every name in the table was verified against the tool registry of
+ * Hermes 0.21.3.
  */
 
 import type {

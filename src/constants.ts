@@ -26,6 +26,11 @@ void _acpProtocolVersionPin
 // rename did) must not orphan the sessions already recorded under this tag.
 export const GATEWAY_SESSION_SOURCE = 'hermes-acp'
 
+// The oldest Hermes release this adapter supports (docs/refs.md). Named only in
+// the startup error of a gateway that lacks `client.capabilities`, which 0.21.4
+// added; nothing compares versions at runtime.
+export const HERMES_MIN_VERSION = '0.21.4'
+
 // ── Gateway transport selection ─────────────────────────────────────────────
 //
 // The adapter reaches the Hermes tui_gateway over its WebSocket (ndjson
@@ -134,8 +139,8 @@ export const ENV_SERVE_PARENT_PID = 'HERMES_PARENT_PID'
 
 // ── Timeouts and teardown ───────────────────────────────────────────────────
 
-// Covers Python import + uvicorn bind (serve), the WebSocket connect, and the
-// initial gateway.ready event.
+// Covers Python import + uvicorn bind (serve), the WebSocket connect, the
+// initial gateway.ready event, and the `client.capabilities` handshake.
 export const DEFAULT_STARTUP_TIMEOUT_MS = 30_000
 export const ENV_STARTUP_TIMEOUT_MS = 'HERMES_ACP_STARTUP_TIMEOUT_MS'
 
@@ -265,13 +270,13 @@ export const COMMAND_PREFIX = '/'
 // catalog is built for Hermes' own terminal UI, so it still carries commands
 // whose entire effect is on that UI.
 //
-// The first three are `_TUI_EXTRA` entries (server.py ~13320) that the gateway
+// The first three are `_TUI_EXTRA` entries (server.py) that the gateway
 // does not implement at all — frontend affordances the TUI handles itself, so
 // invoking them can only fail. The next group toggles terminal display state
 // (verbosity, theme, status bar, activity indicator, pane focus) that this
 // adapter has no surface for: they would execute and change nothing the user
 // can see. `/sessions` is different — it is a real registry command
-// (hermes_cli/commands.py ~240, which is why the `_TUI_EXTRA` entry of the
+// (hermes_cli/commands.py, which is why the `_TUI_EXTRA` entry of the
 // same name is deduped away) — but session switching belongs to the ACP
 // client, which owns which session it is talking to; an agent-side switcher
 // would move Hermes out from under it.

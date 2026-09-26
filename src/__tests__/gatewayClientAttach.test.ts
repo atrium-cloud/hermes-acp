@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { ENV_SESSION_TOKEN } from '../constants.js'
+import { ENV_SESSION_TOKEN, HERMES_MIN_VERSION } from '../constants.js'
 import type { GatewayEvent, GatewayServerRequest } from '../gateway/types.js'
 import { createHarness, READY_FRAME, startReadyClient } from './gatewayTestDoubles.js'
 
 describe('GatewayClient over WebSocket (attach mode)', () => {
   it('resolves start after open + gateway.ready and round-trips requests', async () => {
     const { client, socket } = await startReadyClient()
+    // Without it Hermes 0.21.4+ fails every approval and clarify unsent.
+    expect(socket.capabilityHandshakes).toEqual([{ server_requests: true }])
 
     const response = client.request('session.create', { cwd: '/tmp' })
     const sent = JSON.parse(socket.sent[0]!) as { jsonrpc: string; id: number; method: string; params: object }
@@ -56,6 +58,20 @@ describe('GatewayClient over WebSocket (attach mode)', () => {
     socket.serverOpen()
     socket.serverSend(READY_FRAME)
     await started
+  })
+
+  it('fails startup against a gateway older than the supported floor', async () => {
+    const harness = createHarness()
+    const started = harness.client.start()
+    const socket = harness.sockets[0]!
+    socket.capabilitiesError = { code: -32601, message: 'unknown method: client.capabilities' }
+    socket.serverOpen()
+    socket.serverSend(READY_FRAME)
+
+    await expect(started).rejects.toThrow(
+      `gateway method client.capabilities does not exist on this Hermes; Hermes ${HERMES_MIN_VERSION} or newer is required`,
+    )
+    expect(socket.wasClosedByClient).toBe(true)
   })
 
   it('rejects attach URLs that are not ws:// or wss://', async () => {

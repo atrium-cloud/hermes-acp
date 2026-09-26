@@ -544,7 +544,7 @@ async function resumeSessionOpen(
 
   if (options.replay === 'sync') {
     // The cold path's lazy info snapshot carries no title (`_lazy_resume_info`,
-    // server.py ~8356), so the promised title update is read off `session.list`
+    // server.py), so the promised title update is read off `session.list`
     // unless the response's info happened to carry one.
     const infoTitle = result.info?.title
     const title = infoTitle !== undefined && infoTitle !== '' ? infoTitle : await readStoredTitle(hermes, storedKey)
