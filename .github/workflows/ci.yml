@@ -16,19 +16,21 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      # pnpm version comes from packageManager in package.json. Keep the Node
+      # version in step with the release workflow.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
-          # Pinned to the Bun that wrote bun.lock. Keep in step with the
-          # release workflow.
-          bun-version: 1.4.0
-      - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun run test
-      - run: bun run build
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm run test
+      - run: pnpm run build
       # The bin entry points at dist/index.js; prove it execs after bundling.
       - name: Smoke the bundle
         run: node dist/index.js --version
       # The release artifact is built the same way on a tag; a packaging break
       # fails a PR, not a release.
       - name: Package the release artifact
-        run: bun run package
+        run: pnpm run package

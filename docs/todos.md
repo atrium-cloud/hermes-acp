@@ -19,7 +19,7 @@ Breakpoint fork, steering, and MCP passthrough were evaluated and deliberately n
 ## Known limits
 
 - Mode selection: `HERMES_ACP_MODE` = `serve` (default) | `attach`; see `src/constants.ts` for the related env vars. A stdio spawn mode (`python -m tui_gateway.entry`) was removed before the first release: it doubled the transport code for a path nothing verified, and serve covers the managed case.
-- The gateway is an internal Hermes API with no compat promise; upgrades need re-verification (`bun run drift`, then the hand-verification worklist it prints).
+- The gateway is an internal Hermes API with no compat promise; upgrades need re-verification (`pnpm run drift`, then the hand-verification worklist it prints).
 - No transport mode has passed against a real client end-to-end yet (section 3 E2E is open); checkboxes track implementation plus unit coverage.
 - No cache token breakdown in `PromptResponse.usage`: Hermes tracks cache reads and writes, but the gateway's usage payload carries only a rounded `cache_hit_pct`, so `inputTokens` counts cached and uncached input together and `cachedRead/WriteTokens` stay unset.
 - Per-turn usage misses one case: when a "Bot Chat" session's agent is rebuilt at turn start and the turn's totals outgrow the old ones, the turn is undercounted.
@@ -69,8 +69,8 @@ Hermes upstream ships an ACP adapter on a current schema generation with correct
 - [x] Fork, head-only (stopgap): first-class `session/fork` via `session.branch` with no `count`; bare `{}` capability, no breakpoint marker. Transcript replay happens via `session/load` on the forked session.
 - [x] Snapshot test harness modeled on codex-acp's: scripted gateway events in, recorded ACP transcript out.
 - [x] E2E harness (`src/__tests__/e2e/`): drives the BUILT `dist/index.js` as a real ACP client against a scratch `HERMES_HOME`; gated on `RUN_HERMES_E2E=true`.
-- [x] No runtime Hermes version gate: like codex-acp and claude-agent-acp, Hermes is an external runtime dependency (floor 0.21.4, docs/refs.md + `bun run drift`), not a version check; startup only requires the `client.capabilities` method that release added. The two-channel version/contract floor and `HERMES_ACP_SKIP_VERSION_CHECK` were removed 2026-08-29.
+- [x] No runtime Hermes version gate: like codex-acp and claude-agent-acp, Hermes is an external runtime dependency (floor 0.21.4, docs/refs.md + `pnpm run drift`), not a version check; startup only requires the `client.capabilities` method that release added. The two-channel version/contract floor and `HERMES_ACP_SKIP_VERSION_CHECK` were removed 2026-08-29.
 - [x] Distribution: one `hermes-agent-acp.zip` (the `hermes-agent-acp` executable, a hashbang bundle, plus LICENSE and NOTICE) on GitHub Releases, no npm. Needs Node 22+ on PATH and Hermes 0.21.4+.
-- [x] CI (`.github/workflows/ci.yml`): typecheck, unit tests, build, `--version` smoke, `bun run package`.
+- [x] CI (`.github/workflows/ci.yml`): typecheck, unit tests, build, `--version` smoke, `pnpm run package`.
 - [x] Release: `scripts/release.sh [patch|minor|major|X.Y.Z] [--dry-run] [--push]` bumps, tags and pushes; `release.yml` packages and attaches the zip with `docs/changelogs/<tag>.md` as the body.
 - [x] Pre-commit hook (`.githooks/pre-commit`, installed via `core.hooksPath` by the `prepare` script): typecheck, unit tests, build, `--version` smoke.

@@ -7,7 +7,7 @@
 Once Hermes Agent officially adopts a current ACP schema, this repo can be considered for deprecation.
 
 - Runtime: TypeScript, ESM, Node. Entry point is `src/index.ts`; esbuild bundles to `dist/index.js`.
-- Package manager: Bun only (`bun install`, `bun run typecheck`, `bun run test`, `bun run build`). Do not use npm/pnpm/yarn unless a human explicitly asks.
+- Package manager: pnpm only (`pnpm install`, `pnpm run typecheck`, `pnpm run test`, `pnpm run build`), version pinned by `packageManager` in package.json. Do not use npm/yarn/bun unless a human explicitly asks.
 - Protocol boundary: this process is an ACP agent over stdio on one side and a `tui_gateway` JSON-RPC client on the other. It owns no sessions or state of its own beyond what the ACP surface requires; Hermes owns sessions, tools, and model calls.
 
 References:
@@ -53,11 +53,11 @@ References:
 
 Run these after a logical set of changes is complete, or before commit:
 
-- `bun run typecheck`
-- `bun run test`
-- `bun run build` when transport/entry code changed, followed by a smoke run of `dist/index.js`.
+- `pnpm run typecheck`
+- `pnpm run test`
+- `pnpm run build` when transport/entry code changed, followed by a smoke run of `dist/index.js`.
 - Pre-commit review: after a logical set of changes, dispatch a subagent to review the staged diff for correctness and issues (classify P0/P1/P2). Validate every finding before acting on it.
-- Pre-commit hook at `.githooks/pre-commit` (installed via `core.hooksPath` by `bun install`). It runs typecheck, tests, build, and a smoke run of `dist/index.js`; binaries are compiled only by the release workflow. Stage relevant changes before running it.
+- Pre-commit hook at `.githooks/pre-commit` (installed via `core.hooksPath` by `pnpm install`). It runs typecheck, tests, build, and a smoke run of `dist/index.js`; binaries are compiled only by the release workflow. Stage relevant changes before running it.
 
 ## Error Handling
 

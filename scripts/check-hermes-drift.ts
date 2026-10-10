@@ -14,9 +14,9 @@
  * handshake passed this check clean and only the live e2e tier caught it.
  *
  * Usage:
- *   bun run drift                 # check against the latest GitHub release
- *   bun run drift -- --tag v2026.8.19
- *   bun run drift -- --root /path/to/hermes-agent
+ *   pnpm run drift                # check against the latest GitHub release
+ *   pnpm run drift --tag v2026.8.19
+ *   pnpm run drift --root /path/to/hermes-agent
  */
 
 import { spawnSync } from 'node:child_process'

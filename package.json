@@ -9,16 +9,20 @@
   "bin": {
     "hermes-agent-acp": "dist/index.js"
   },
+  "packageManager": "pnpm@12.10.1",
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "prepare": "git config core.hooksPath .githooks",
-    "start": "bun src/index.ts",
+    "start": "pnpm run build && node dist/index.js",
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
-    "drift": "bun scripts/check-hermes-drift.ts",
+    "drift": "node scripts/check-hermes-drift.ts",
     "test": "vitest run",
-    "test:e2e": "bun run build && RUN_HERMES_E2E=true vitest run --no-file-parallelism src/__tests__/e2e",
+    "test:e2e": "pnpm run build && RUN_HERMES_E2E=true vitest run --no-file-parallelism src/__tests__/e2e",
     "release": "bash scripts/release.sh",
-    "package": "bun run build && cp dist/index.js dist/hermes-agent-acp && chmod +x dist/hermes-agent-acp && rm -f dist/hermes-agent-acp.zip && zip -j dist/hermes-agent-acp.zip dist/hermes-agent-acp LICENSE NOTICE"
+    "package": "pnpm run build && cp dist/index.js dist/hermes-agent-acp && chmod +x dist/hermes-agent-acp && rm -f dist/hermes-agent-acp.zip && zip -j dist/hermes-agent-acp.zip dist/hermes-agent-acp LICENSE NOTICE"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.5.0"

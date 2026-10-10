@@ -3,7 +3,7 @@
  * scripted gateway because they depend on a real model, a real provider
  * endpoint, and real persisted history.
  *
- * Skipped unless RUN_HERMES_E2E=true (see e2eGate.ts); `bun run test:e2e`
+ * Skipped unless RUN_HERMES_E2E=true (see e2eGate.ts); `pnpm run test:e2e`
  * builds first and sets it.
  */
 

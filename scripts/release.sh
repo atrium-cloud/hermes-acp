@@ -24,7 +24,7 @@ Prepare a hermes-agent-acp release commit and annotated tag.
 
 Usage:
   scripts/release.sh [patch|minor|major|X.Y.Z] [--dry-run] [--push]
-  bun run release -- [patch|minor|major|X.Y.Z] [--dry-run] [--push]
+  pnpm run release [patch|minor|major|X.Y.Z] [--dry-run] [--push]
 
 The bump defaults to patch. When no release tag exists yet, the package.json
 version is released as-is (the initial baseline) instead of being bumped.
@@ -193,9 +193,9 @@ fi
 
 # The same gates as the pre-commit hook and CI. The release files are staged
 # first so the release commit is exactly what passed.
-bun run typecheck
-bun run test
-bun run build
+pnpm run typecheck
+pnpm run test
+pnpm run build
 node dist/index.js --version
 
 if [[ "$dry_run" -eq 1 ]]; then

@@ -2,7 +2,7 @@
  * The env gate for the live-Hermes tier.
  *
  * These suites spawn the BUILT adapter against a real Hermes install and spend
- * real provider tokens, so they never run under the default `bun run test`:
+ * real provider tokens, so they never run under the default `pnpm run test`:
  * every suite here is registered through `describeE2E`, which skips unless
  * `RUN_HERMES_E2E=true` (the `test:e2e` script sets it after a build).
  *

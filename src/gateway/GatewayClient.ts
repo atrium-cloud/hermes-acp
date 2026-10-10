@@ -246,7 +246,7 @@ export class GatewayClient {
    */
   private async advertiseServerRequests(): Promise<void> {
     try {
-      // No type arguments: `bun run drift` finds consumed methods by the
+      // No type arguments: `pnpm run drift` finds consumed methods by the
       // literal `request('…'` spelling. The result (ClientCapabilitiesResult)
       // is unread.
       await this.request('client.capabilities', { server_requests: true } satisfies ClientCapabilitiesParams)

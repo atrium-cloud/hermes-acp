@@ -12,10 +12,10 @@
 
 - Repo: https://github.com/NousResearch/hermes-agent
 - Floor: Hermes 0.21.4 (tag `v2026.9.21`), the oldest supported release. It added the `client.capabilities {server_requests: true}` handshake (`tui_gateway/methods_voice.py`): a WebSocket client that never sends it has every server→client request (approval, clarify) failed unsent (`tui_gateway/server_requests.py` `_unanswerable`). The adapter sends it at startup, and a gateway without the method fails startup with an error naming the floor. 0.21.3 had moved approvals and clarify onto server→client requests (commit ebe8cda8). The floor moves only when the adapter comes to depend on something older releases lack.
-- Verified against: Hermes 0.21.5 (tag `v2026.9.24`), the release `src/gateway/types.ts` was last hand-verified against (payload shapes, method params/results, turn lifecycle, and the server→client request contracts, 2026-09-27). Each newer release is re-verified (`bun run drift`, its worklist, then the live e2e tier), then moves this line.
+- Verified against: Hermes 0.21.5 (tag `v2026.9.24`), the release `src/gateway/types.ts` was last hand-verified against (payload shapes, method params/results, turn lifecycle, and the server→client request contracts, 2026-09-27). Each newer release is re-verified (`pnpm run drift`, its worklist, then the live e2e tier), then moves this line.
 - Hermes is an external runtime dependency the way codex-acp's `@openai/codex` and claude-agent-acp's `@anthropic-ai/claude-agent-sdk` are, except it is a Python install (`install.sh`/uv) that cannot ride in the package or the release bundle: the user's `hermes` on PATH is used as-is, never locked to a version. Nothing compares versions at runtime — no version check, no `desktop_contract` gate; `_session_info.version`/`desktop_contract` stay typed because they are on the wire, unread.
 - Verified against live Hermes: 0.21.5 and the 0.21.4 floor (2026-09-27, full tier 28/28 each, including live approvals); 0.21.3 (2026-09-21); 0.20.5 (2026-08-24).
-- Drift checker: `bun run drift` (`-- --tag`, `-- --root`) diffs consumed gateway method/event/server-request names against a release; payload shapes need hand-verification.
+- Drift checker: `pnpm run drift` (`--tag`, `--root`) diffs consumed gateway method/event/server-request names against a release; payload shapes need hand-verification.
 
 The agent we wrap; we build on its `tui_gateway`, not its own ACP adapter.
 
