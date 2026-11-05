@@ -15,7 +15,7 @@
  *
  * Usage:
  *   pnpm run drift                # check against the latest GitHub release
- *   pnpm run drift --tag v2026.8.19
+ *   pnpm run drift --tag v0.22.7
  *   pnpm run drift --root /path/to/hermes-agent
  */
 

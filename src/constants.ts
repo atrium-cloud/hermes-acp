@@ -18,7 +18,7 @@ const _acpProtocolVersionPin: 1 = ACP_PROTOCOL_VERSION
 void _acpProtocolVersionPin
 
 // `source` tag on every gateway session this adapter creates. Hermes stores it
-// verbatim on the state.db row (`_resolve_session_source` in server.py, applied
+// verbatim on the state.db row (`_resolve_session_source` in agent_factory.py, applied
 // by session.create in methods_session.py, only defaults an empty value), so
 // sessions created here stay attributable; session.list deny-lists only the
 // internal "kanban"/"tool" sources and surfaces everything else. A literal, not
@@ -270,7 +270,7 @@ export const COMMAND_PREFIX = '/'
 // catalog is built for Hermes' own terminal UI, so it still carries commands
 // whose entire effect is on that UI.
 //
-// The first three are `_TUI_EXTRA` entries (server.py) that the gateway
+// The first three are `_TUI_EXTRA` entries (command_discovery.py) that the gateway
 // does not implement at all — frontend affordances the TUI handles itself, so
 // invoking them can only fail. The next group toggles terminal display state
 // (verbosity, theme, status bar, activity indicator, pane focus) that this
@@ -298,8 +298,8 @@ export const EXCLUDED_COMMANDS: ReadonlySet<string> = new Set([
 export const COMMAND_SUBCOMMAND_HINT_SEPARATOR = '|'
 
 // `slash.exec` refuses skill commands and `/snapshot restore` with this code
-// and a message pointing at `command.dispatch` (methods_tools.py ~1196,
-// ~1170). It is the signal to re-issue the command on the dispatch method,
+// and a message pointing at `command.dispatch` (methods_tools.py ~1057,
+// ~1045). It is the signal to re-issue the command on the dispatch method,
 // not an error to surface.
 export const GATEWAY_CODE_USE_COMMAND_DISPATCH = 4018
 

@@ -24,7 +24,7 @@ Known limitations of the ACP surface, all rooted in the gateway assuming a Herme
 
 ## Unsupported gateway round-trips
 
-- Cause: tools block on frontend-only server requests — `terminal.read`, `preview.read`/`act`, `window.read`, `tour`, `mcp.setup`, `sudo`, `secret`, the vault prompts — none with an ACP counterpart.
+- Cause: tools block on frontend-only server requests (`terminal.read`, `preview.read`/`act`, `window.read`, `tour`, `setup_beat`, `theme.pick`, `theme.apply`, `sudo`, `display.install.sudo`, `secret`, the vault prompts), none with an ACP counterpart.
 - Behavior: the adapter never fabricates an answer; the request is refused with JSON-RPC method-not-found, which upstream reads as unanswered, so the tool fails at once and the turn continues.
 
 ## Open requests are not re-delivered on resume

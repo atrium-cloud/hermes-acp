@@ -4,7 +4,7 @@
  * Hand-written from the Hermes source (tui_gateway/server.py,
  * methods_prompt.py, methods_session.py, methods_config.py,
  * methods_complete.py, methods_tools.py) and last verified against Hermes
- * 0.21.5 (tag v2026.9.24; the floor and verified release live in
+ * 0.22.7 (tag v0.22.7; the floor and verified release live in
  * docs/refs.md). There is no codegen: this file is the
  * compile-time tripwire — every Hermes bump must re-verify these shapes
  * against upstream (docs/todos.md "Known limits").
@@ -50,7 +50,7 @@ export interface SessionInfo {
 
 /**
  * The info snapshot `session.create`/`session.resume` return for a session
- * whose agent is not built yet: `_lazy_resume_info` (server.py) carries
+ * whose agent is not built yet: `_lazy_resume_info` (session_registry.py) carries
  * cwd, branch, project, model, empty tools/skills, `lazy: true`, and provider
  * only when the stored session overrode it — none of the runtime fields the
  * full `session.info` event reports, and no title (a stored session's title
@@ -173,28 +173,41 @@ export interface SessionUsageEvent {
   readonly payload?: { readonly usage?: Usage }
 }
 
+/** `turn_id`/`segment`/`offset` are the reply-frame identity (stream_segments.py):
+ * typed because they are on the wire, unread. */
 export interface MessageStartEvent {
   readonly type: 'message.start'
   readonly session_id?: string
-  readonly payload?: undefined
+  readonly payload?: { readonly turn_id?: string }
 }
 
 export interface MessageDeltaEvent {
   readonly type: 'message.delta'
   readonly session_id?: string
-  readonly payload?: { readonly rendered?: string; readonly text?: string }
+  readonly payload?: {
+    readonly rendered?: string
+    readonly text?: string
+    readonly turn_id?: string
+    readonly segment?: number
+    readonly offset?: number
+  }
 }
 
 /**
  * Assistant text emitted alongside tool calls, or an attempted final answer
- * before a verify-on-stop nudge (server.py `_interim_assistant_cb`, on by
+ * before a verify-on-stop nudge (prompt_turn.py `_interim_assistant_cb`, on by
  * default). `message.complete.text` carries only the final response, so when
  * `already_streamed` is false this is the only delivery of that text.
  */
 export interface MessageInterimEvent {
   readonly type: 'message.interim'
   readonly session_id?: string
-  readonly payload?: { readonly text?: string; readonly already_streamed?: boolean }
+  readonly payload?: {
+    readonly text?: string
+    readonly already_streamed?: boolean
+    readonly turn_id?: string
+    readonly segment?: number
+  }
 }
 
 export type MessageCompleteStatus = 'complete' | 'error' | 'interrupted'
@@ -276,11 +289,11 @@ export interface RequestCancelEvent {
  * Diagnostic in most places, terminal in two, neither of which is followed by a
  * `message.complete`:
  *
- * - the pending-agent path (methods_prompt.py `run_after_agent_ready`) emits
+ * - the pending-agent path (methods_prompt.py `_run_after_agent_ready`) emits
  *   only this and returns when the turn is cancelled or the session stops
  *   before the agent is built, so a turn that sees it before any
  *   `message.start` is over;
- * - the `@`-context refusal (server.py `_run_prompt_submit` ~12366, raised when
+ * - the `@`-context refusal (prompt_turn.py `_prepare_turn_input`, raised when
  *   injected references exceed half the context window) emits it and returns
  *   from the turn body after `message.start`, leaving the settled
  *   `session.info` as the only marker that the turn ended (SessionInfoEvent).
@@ -381,18 +394,21 @@ export interface ClarifyServerRequest {
   readonly method: 'clarify'
   readonly params: {
     readonly session_id: string
+    /** `question`/`choices`/`multi_select` are the 0.21.x form, kept for the floor.
+     * 0.22.x always sends `questions`, where one question is a one-entry batch. */
     readonly question?: string
     readonly choices?: readonly string[] | null
-    /** Single-question form only; sent only when true (server.py `_clarify_block`). */
     readonly multi_select?: boolean
     readonly questions?: readonly ClarifyQuestion[]
-    /** Batch answers already locked before a reconnect (the `open_requests` snapshot). */
-    readonly answers?: Record<string, string>
+    /** Batch answers already locked before a reconnect (the `open_requests`
+     * snapshot); null means skipped. */
+    readonly answers?: Record<string, string | null>
   }
 }
 
-/** Response to a single-question `clarify` request; `""` means skip. Batch
- * questions are answered through `clarify.lock` instead (ClarifyLockParams). */
+/** Response to a 0.21.x single-question `clarify` request, kept for the floor;
+ * `""` means skip. Batch questions, which is every question on 0.22.x, are
+ * answered through `clarify.lock` instead (ClarifyLockParams). */
 export interface ClarifyResult {
   readonly answer: string
 }
@@ -456,7 +472,7 @@ export interface PromptSubmitParams {
 /**
  * `voice_stopped` is the one non-turn answer: with voice mode on in the gateway
  * environment, a prompt that is exactly a configured stop phrase ends the voice
- * chat and starts no turn (methods_prompt.py ~305).
+ * chat and starts no turn (methods_prompt.py `_typed_stop_phrase_response`).
  */
 export type PromptSubmitResult = { readonly status: 'streaming' } | { readonly voice_stopped: true }
 
@@ -464,7 +480,7 @@ export type PromptSubmitResult = { readonly status: 'streaming' } | { readonly v
 //
 // Attachments are pre-staged, not passed to `prompt.submit`: image.attach_bytes
 // pushes a path onto the session's `attached_images` list, and the NEXT submit
-// drains it into the turn (server.py `_run_prompt_submit`). file.attach is the
+// drains it into the turn (prompt_turn.py). file.attach is the
 // other half — it materializes the file in the session workspace and returns a
 // `@file:` ref for the caller to splice into the prompt text; it never touches
 // `attached_images`.
@@ -590,7 +606,7 @@ export interface SessionListResult {
 export interface SessionResumeParams {
   readonly session_id: string
   readonly cols?: number
-  /** Suppress the transcript copy in the response (methods_session.py ~373);
+  /** Suppress the transcript copy in the response (methods_session.py);
    * set by callers that only need the live session, not its history. */
   readonly omit_messages?: boolean
 }
@@ -704,7 +720,7 @@ export interface ConfigSetResult {
   readonly info?: SessionInfo
 }
 
-/** One category bucket of `commands.catalog` (methods_tools.py ~354). The same
+/** One category bucket of `commands.catalog` (command_discovery.py). The same
  * `[name, description]` pairs also appear flat in `pairs`; skills and aliases
  * appear in neither. */
 export interface CommandsCatalogCategory {
@@ -753,7 +769,7 @@ export interface CommandDispatchParams {
 }
 
 /**
- * `command.dispatch` result (methods_tools.py ~432-1122).
+ * `command.dispatch` result (methods_tools.py).
  *
  * `output` variants are terminal text; `send`/`skill` hand back a `message`
  * the client is expected to submit as a user turn (`display` is what a UI

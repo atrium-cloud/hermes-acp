@@ -6,10 +6,11 @@
  * asked to cancel, and the ordering of the `session/update` notifications it
  * emits. Translation itself is delegated to `mappers.ts`.
  *
- * Turn boundary (verified against Hermes 0.21.5): `prompt.submit` returns as
+ * Turn boundary (verified against Hermes 0.22.7): `prompt.submit` returns as
  * soon as the turn is streaming, and a turn that reaches the model ends with
  * exactly one `message.complete` carrying a `status`. Every emit site for our
- * session (`tui_gateway/server.py` _run_prompt_submit, _emit_terminal_turn_error,
+ * session (`tui_gateway/prompt_turn.py` _run_prompt_submit,
+ * `session_auto_continue.py` _emit_terminal_turn_error,
  * the compute-host bridge) sets it; the one status-less `message.complete` in
  * the gateway belongs to the subagent-watch mirror, which runs on a different
  * session id and can never reach an ACP turn. Two upstream paths never reach a
@@ -666,7 +667,7 @@ export class TurnHandler {
   private async answerClarifyBatch(
     requestId: string,
     questions: readonly ClarifyQuestion[],
-    alreadyAnswered: Record<string, string> | undefined,
+    alreadyAnswered: Record<string, string | null> | undefined,
     toolCallId: string | undefined,
   ): Promise<void> {
     for (const question of questions) {

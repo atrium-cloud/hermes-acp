@@ -24,9 +24,13 @@ Breakpoint fork, steering, and MCP passthrough were evaluated and deliberately n
 - No cache token breakdown in `PromptResponse.usage`: Hermes tracks cache reads and writes, but the gateway's usage payload carries only a rounded `cache_hit_pct`, so `inputTokens` counts cached and uncached input together and `cachedRead/WriteTokens` stay unset.
 - Per-turn usage misses one case: when a "Bot Chat" session's agent is rebuilt at turn start and the turn's totals outgrow the old ones, the turn is undercounted.
 - Unhandled gateway behaviors found in the 0.21.5 payload review (static, not seen live):
-  - A turn the gateway declines to start after `message.start` (session closing, or since 0.21.4 a retiring backend: `_run_prompt_submit`'s `can_start` in prompt_turn.py) sends neither `message.complete` nor a settled `session.info`, so the prompt never resolves.
-  - `connection.request` (the `manage_connections` card, 0.21.4+, only with Nous Portal connectors) is an event this adapter drops; the tool blocks up to 300s with no link.
-  - `PromptSubmitResult` is typed `streaming` only, but upstream also answers `queued`/`steered`/`redirected`, which the adapter treats as a new streaming turn.
+    - A turn the gateway declines to start after `message.start` (session closing, or since 0.21.4 a retiring backend: `_run_prompt_submit`'s `can_start` in prompt_turn.py) sends neither `message.complete` nor a settled `session.info`, so the prompt never resolves.
+    - `connection.request` (the `manage_connections` card, 0.21.4+, only with Nous Portal connectors) is an event this adapter drops; the tool blocks up to 300s with no link.
+    - `PromptSubmitResult` is typed `streaming` only, but upstream also answers `queued`/`steered`/`redirected`, which the adapter treats as a new streaming turn. Since the 0.22 line that includes `status: queued, forwarded: true`, where the prompt runs on the gateway owner and nothing runs here, so the turn would hang (static, not seen live).
+- `session.create` sends neither `cwd_explicit` nor `profile`. The flag only decides whether a named profile's configured workspace outranks the client's cwd (`_completion_cwd` in `tui_gateway/session_workdir.py`, static).
+- `session.resume` could pass `inline_images: false`, which renders stored image parts as `[image]` instead of their data URIs: a possible payload saving on long transcripts.
+- The live tier has no clarify, fork, attachment or slash-command case. Those surfaces last ran live by hand against 0.22.7 (docs/refs.md).
+- Watch on each Hermes bump: confirm `hermes serve` still carries the `server.dispatch` session wire this adapter depends on.
 - No fs proxying and no client-side ACP `terminal/*` methods planned: Hermes does its own file IO and command execution in-process, like Codex. A `terminal` tool call still renders as a terminal entry, over the `_meta` side channel rather than those methods (see Delivered).
 
 ## Deferred simplifications

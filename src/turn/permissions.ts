@@ -175,10 +175,10 @@ function clarifyProperty(request: ClarifyFormRequest): ElicitationPropertySchema
  * The answer string a `clarify` response (or `clarify.lock`) takes, or null
  * when the client accepted the form without filling the field in.
  *
- * A multi-select answer is serialized as a JSON array: Hermes' parser
- * (`tools/clarify_tool.py _parse_multi_select_response`) tries JSON before
- * falling back to splitting on commas, and a choice containing a comma would
- * be torn in two by that fallback.
+ * A multi-select answer is serialized as a JSON array, which Hermes' parser
+ * (`tools/clarify_tool.py` `_clean_answer`) tries first. Any other string reads
+ * as one typed answer, and the 0.21.x parser split it on commas instead, which
+ * would tear a choice containing a comma in two.
  */
 export function clarifyAnswer(value: unknown): string | null {
   if (Array.isArray(value)) {
