@@ -2,7 +2,7 @@
 
 Purpose: expose Hermes Agent as a clean ACP v1 agent by building on its `tui_gateway` JSON-RPC backend instead of its defective `hermes acp` adapter. Retire once Hermes adopts current ACP schemas upstream.
 
-Layering (mirrors codex-acp): `index.ts` transport → `HermesAcpServer` ACP semantics (`src/session/sessionSetup.ts` establishment) → gateway client (`src/gateway/`) → typed JSON-RPC over the gateway WebSocket.
+Layering (mirrors codex-acp): `index.ts` transport → `src/app.ts` ACP method routing → `HermesAcpServer` ACP semantics (`src/session/sessionSetup.ts` establishment) → gateway client (`src/gateway/`) → typed JSON-RPC over the gateway WebSocket.
 
 ## 1. Capability-gated session lifecycle
 
@@ -14,13 +14,13 @@ Breakpoint fork, steering, and MCP passthrough were evaluated and deliberately n
 
 ## 3. Quality and integration
 
-- [ ] E2E outcomes: run the tier and record the live model-switch checks and half-dead-client characterization; the hang shape decides whether a write timeout is needed.
+- [ ] Write timeout: decide whether one is needed from the hang shape the live half-dead-client case asserts (`src/__tests__/e2e/halfDeadClient.e2e.test.ts`): the pending prompt stalls with the adapter alive, and completes once the client drains again.
 
 ## Known limits
 
 - Mode selection: `HERMES_ACP_MODE` = `serve` (default) | `attach`; see `src/constants.ts` for the related env vars. A stdio spawn mode (`python -m tui_gateway.entry`) was removed before the first release: it doubled the transport code for a path nothing verified, and serve covers the managed case.
 - The gateway is an internal Hermes API with no compat promise; upgrades need re-verification (`pnpm run drift`, then the hand-verification worklist it prints).
-- No transport mode has passed against a real client end-to-end yet (section 3 E2E is open); checkboxes track implementation plus unit coverage.
+- Attach mode is covered by unit tests only (`src/__tests__/gatewayClientAttach.test.ts`); the live e2e tier runs serve mode (`src/__tests__/e2e/spawnedAgentFixture.ts`, verified releases in docs/refs.md).
 - No cache token breakdown in `PromptResponse.usage`: Hermes tracks cache reads and writes, but the gateway's usage payload carries only a rounded `cache_hit_pct`, so `inputTokens` counts cached and uncached input together and `cachedRead/WriteTokens` stay unset.
 - Per-turn usage misses one case: when a "Bot Chat" session's agent is rebuilt at turn start and the turn's totals outgrow the old ones, the turn is undercounted.
 - Unhandled gateway behaviors found in the 0.21.5 payload review (static, not seen live):
@@ -48,7 +48,7 @@ Hermes upstream ships an ACP adapter on a current schema generation with correct
 
 - [x] Gateway JSON-RPC client: ndjson framing, request correlation, event dispatch, typed wrappers — `src/gateway/GatewayClient.ts` + `HermesGatewayClient.ts`.
 - [x] Managed serve mode (default): spawn `hermes serve`, connect over WebSocket with `HERMES_BACKEND_READY` discovery and minted `?token=` auth.
-- [x] Attach mode: connect to an already-running gateway over WebSocket, selected via env/flag.
+- [x] Attach mode: connect to an already-running gateway over WebSocket, selected via `HERMES_ACP_MODE=attach`, which requires `HERMES_ACP_GATEWAY_URL`.
 - [x] Startup handshake: wait for `gateway.ready`, fail fast on gateway process exit or timeout.
 - [x] Clean teardown: SIGTERM→SIGKILL on close plus the `HERMES_PARENT_PID` watchdog, so no orphaned gateways.
 - [x] Hand-written gateway types pinned to a Hermes version as the compile-time tripwire — `src/gateway/types.ts`.
@@ -64,12 +64,12 @@ Hermes upstream ships an ACP adapter on a current schema generation with correct
 - [x] Model selection as `configOptions`: `model` select applied via `config.set` (the provider rides in the value's flags) plus a global `approval_mode` select — `src/turn/configOptions.ts`.
 - [x] Model-switch hardening: bogus ids surface gateway 5001 verbatim; deferred and expensive-model paths covered in `src/__tests__/sessionConfig.test.ts`.
 - [x] Modes: `default`/`dont_ask` via `config.set {key: "yolo", scope: "session"}`; current mode is the gateway's effective `yolo` state. No `accept_edits`: gateway Hermes never prompts for edits.
-- [x] Slash commands: `commands.catalog` snapshot sent as `available_commands_update`; recognized commands routed to `slash.exec`/`command.dispatch` (4018 is the reroute signal) — `src/turn/commands.ts`.
+- [x] Slash commands: `commands.catalog` snapshot sent as `available_commands_update`; recognized commands routed to `slash.exec`/`command.dispatch` (4018 is the reroute signal). Catalog and parsing in `src/turn/commands.ts`, routing in `src/turn/commandExecution.ts`.
 - [x] Prompt content (`src/turn/promptContent.ts`): images via `image.attach_bytes` with `image.detach` rollback; everything else via `file.attach` `@file:` refs. Audio rejected.
 - [x] `session/list`: bounded fetch filtered adapter-side (source tag, known cwd, client cwd), paged by decimal-offset cursor; cwd cache `src/session/sessionDirectory.ts`.
 - [x] `session/resume` and `session/load`: one shared `resumeSession` flow; load replays history synchronously before responding (codex-acp's order).
 - [x] `session/close` and `session/delete`: close abandons in-flight turns (`cancelled`, never hangs); a `closing` flag refuses mid-teardown work. Delete handles stored ids, tracked or not.
-- [x] Note: gateway sessions and old `hermes acp` sessions are different state.db rows; old-adapter sessions never appear (docs/caveats.md).
+- [x] Note: gateway sessions and old `hermes acp` sessions are different state.db rows; old-adapter sessions never appear in `session/list`, which serves only this adapter's source tag (docs/caveats.md).
 - [x] Fork, head-only (stopgap): first-class `session/fork` via `session.branch` with no `count`; bare `{}` capability, no breakpoint marker. Transcript replay happens via `session/load` on the forked session.
 - [x] Snapshot test harness modeled on codex-acp's: scripted gateway events in, recorded ACP transcript out.
 - [x] E2E harness (`src/__tests__/e2e/`): drives the BUILT `dist/index.js` as a real ACP client against a scratch `HERMES_HOME`; gated on `RUN_HERMES_E2E=true`.
